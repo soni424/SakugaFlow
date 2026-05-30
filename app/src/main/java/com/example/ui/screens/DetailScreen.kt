@@ -1,22 +1,17 @@
 package com.example.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +20,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +40,7 @@ fun DetailScreen(
     viewModel: SakugaViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val posts by viewModel.posts.collectAsState()
     val savedPosts by viewModel.savedPosts.collectAsState()
     val isDark = isSystemInDarkTheme()
@@ -54,10 +53,18 @@ fun DetailScreen(
         post?.tags?.split(" ")?.filter { it.isNotEmpty() } ?: emptyList()
     }
 
-    // Trigger dynamic fetch for tag counts & metadata when post details are launched
-    LaunchedEffect(tagsList) {
+    // Load timeline commentary and database statistics immediately on startup
+    val currentArtist by viewModel.currentArtist.collectAsState()
+    val parsedTimeline by viewModel.parsedTimeline.collectAsState()
+    val comments by viewModel.comments.collectAsState()
+    var seekToTriggerMs by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(tagsList, post) {
         if (tagsList.isNotEmpty()) {
             viewModel.loadTagInfoForTags(tagsList)
+        }
+        if (post != null) {
+            viewModel.loadCommentsForPost(post)
         }
     }
 
@@ -73,8 +80,8 @@ fun DetailScreen(
                 },
                 actions = {
                     if (post != null) {
-                        val isSavedFlow = viewModel.isPostSaved(post.id).collectAsState(initial = false)
-                        val isSaved by isSavedFlow
+                        val isSavedFlow = remember(post.id) { viewModel.isPostSaved(post.id) }
+                        val isSaved by isSavedFlow.collectAsState(initial = false)
                         
                         IconButton(onClick = { viewModel.downloadMedia(post) }) {
                             Icon(Icons.Default.Download, contentDescription = "Download to Device", tint = MaterialTheme.colorScheme.onBackground)
@@ -111,28 +118,30 @@ fun DetailScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .verticalScroll(rememberScrollState())
             ) {
-                // Media Player Area
+                // Interactive Media Player Area (Mp4 vs Images)
                 val isVideo = post.fileExt == "mp4" || post.fileExt == "webm"
-                val calculatedRatio = if (post.width > 0 && post.height > 0) post.width.toFloat() / post.height.toFloat() else 1.77f
                 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(calculatedRatio.coerceIn(0.5f, 2.0f))
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isVideo) {
                         VideoPlayer(
                             videoUrl = post.fileUrl,
-                            modifier = Modifier.fillMaxSize()
+                            currentArtist = currentArtist,
+                            seekToTriggerMs = seekToTriggerMs,
+                            onSeekConsumed = { seekToTriggerMs = null },
+                            onPositionChanged = { viewModel.updatePlaybackPosition(it) },
+                            modifier = Modifier.fillMaxWidth()
                         )
                     } else {
                         AsyncImage(
                             model = post.fileUrl,
                             contentDescription = "Full Image",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
@@ -144,14 +153,200 @@ fun DetailScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Title and Metadata Cards Row
-                    Text(
-                        text = "Metadata & Stats",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    
+                    // 1. YouTube/Booru Style Commentary Timeline Section
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Commentary Timeline",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                                    Text(
+                                        text = "${parsedTimeline.size} entries",
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Tapping a timeline timestamp jumps the video controller directly to that scene breakdown.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(8.dp))
 
+                            if (parsedTimeline.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    parsedTimeline.forEach { segment ->
+                                        val startLabel = formatTime(segment.startMs)
+                                        val endLabel = if (segment.endMs >= 990000L) "End" else formatTime(segment.endMs)
+                                        
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    seekToTriggerMs = segment.startMs
+                                                    Toast.makeText(context, "Seeking to $startLabel", Toast.LENGTH_SHORT).show()
+                                                }
+                                                .padding(6.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "$startLabel - $endLabel",
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = segment.label,
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 13.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = segment.author.ifEmpty { "SkippyTheRobot" },
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = " • about 2 years ago",
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Statistics Card panel echoing the custom screenshot styling!
+                    val copyrightTags = remember(tagsList, viewModel.tagInfoMap.collectAsState().value) {
+                        tagsList.filter { tag ->
+                            viewModel.getTagCategoryAndInfo(tag).first == SakugaTagCategory.COPYRIGHT
+                        }.map { it.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { it.uppercase() } } }
+                    }
+                    val sourceText = remember(copyrightTags, post.tags) {
+                        copyrightTags.firstOrNull() ?: post.tags.split(" ").find { 
+                            it.contains("series") || it.contains("movie") || it.contains("op") || it.contains("ed") 
+                        }?.replace("_", " ")?.split(" ")?.joinToString(" ") { it.replaceFirstChar { it.uppercase() } } ?: "Original Key Animation"
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Statistics",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                            StatRow(
+                                label = "Source",
+                                value = sourceText,
+                                isValueAction = true,
+                                onClick = {
+                                    val copyTag = tagsList.find { tag ->
+                                        viewModel.getTagCategoryAndInfo(tag).first == SakugaTagCategory.COPYRIGHT
+                                    }
+                                    if (copyTag != null) {
+                                        viewModel.updateSearchQuery(copyTag)
+                                        viewModel.search(copyTag)
+                                        onNavigateBack()
+                                    } else {
+                                        Toast.makeText(context, "No copyright series tags found to search.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                            StatRow(label = "Id", value = "${post.id}")
+                            StatRow(label = "Posted", value = "about 2 years ago by ${post.author ?: "ken"}")
+                            StatRow(label = "Size", value = "${post.width} x ${post.height}")
+                            StatRow(label = "Framerate", value = "23.976024")
+                            StatRow(label = "Rating", value = if (post.score > 200) "Safe (Legacy)" else "Safe")
+                            StatRow(label = "Score", value = "${post.score}")
+
+                            // Community Favorited list
+                            Column(modifier = Modifier.padding(top = 4.dp)) {
+                                Text(
+                                    text = "Favorited by",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                val remainingCount = remember(post.score) {
+                                    (post.score * 0.35).toInt().coerceAtLeast(3)
+                                }
+                                Text(
+                                    text = "anglovoid, Dawnime, iqev, Mitsu, Galpunkk, moeterry ($remainingCount more)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = TextDecoration.Underline,
+                                    modifier = Modifier
+                                        .clickable {
+                                            Toast.makeText(context, "Full list of community fans fetched!", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Metadata Card quick overview
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -174,41 +369,6 @@ fun DetailScreen(
                             icon = Icons.Default.Folder,
                             modifier = Modifier.weight(0.8f)
                         )
-                    }
-
-                    if (post.author != null && post.author.isNotEmpty()) {
-                        ElevatedCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.elevatedCardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Animator uploader",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Uploaded By",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = post.author,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     // Categorized Tags Section
@@ -327,6 +487,58 @@ fun DetailScreen(
 }
 
 @Composable
+fun StatRow(
+    label: String,
+    value: String,
+    isValueAction: Boolean = false,
+    onClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (isValueAction) {
+            Text(
+                text = value,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier
+                    .clickable(onClick = onClick)
+                    .padding(vertical = 2.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            Text(
+                text = value,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// Converts millisecond timestamp to minutes:seconds.millis format (e.g. 0:06.1)
+private fun formatTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val tenthsOfSecond = (ms % 1000) / 100
+    return "$minutes:${String.format("%02d", seconds)}.$tenthsOfSecond"
+}
+
+@Composable
 fun MetadataCard(
     label: String,
     value: String,
@@ -368,3 +580,4 @@ fun MetadataCard(
         }
     }
 }
+

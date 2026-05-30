@@ -91,6 +91,15 @@ class SakugaRepository(context: Context) {
         postDao.deletePostById(id)
     }
 
+    suspend fun getComments(postId: Int): List<SakugaComment> {
+        return try {
+            api.getComments(postId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun searchPosts(tags: String, page: Int = 1, limit: Int = 20): List<SakugaPost> {
         return try {
             api.getPosts(tags = tags.ifEmpty { null }, page = page, limit = limit)

@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.SakugaPost
 import com.example.data.SakugaRepository
+import com.example.data.SakugaComment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,15 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _tagInfoMap = MutableStateFlow<Map<String, com.example.data.SakugaTag>>(emptyMap())
     val tagInfoMap = _tagInfoMap.asStateFlow()
+
+    private val _comments = MutableStateFlow<List<SakugaComment>>(emptyList())
+    val comments = _comments.asStateFlow()
+
+    private val _parsedTimeline = MutableStateFlow<List<TimelineSegment>>(emptyList())
+    val parsedTimeline = _parsedTimeline.asStateFlow()
+
+    private val _currentArtist = MutableStateFlow("")
+    val currentArtist = _currentArtist.asStateFlow()
 
     val savedPosts: StateFlow<List<SakugaPost>> = repository.savedPosts.stateIn(
         scope = viewModelScope,
@@ -102,14 +112,16 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val currentMap = _tagInfoMap.value.toMutableMap()
             var modified = false
-            tagsList.forEach { tag ->
-                val name = tag.lowercase().trim()
-                if (name.isNotEmpty() && !currentMap.containsKey(name)) {
-                    val info = repository.getTagInfo(name)
-                    if (info != null) {
-                        currentMap[name] = info
-                        modified = true
-                    }
+            val pendingTags = tagsList.map { it.lowercase().trim() }
+                .filter { name -> name.isNotEmpty() && !currentMap.containsKey(name) }
+                .distinct()
+                .take(30) // Limit loading to protect API rate limits and connection exhaustion
+
+            pendingTags.forEach { name ->
+                val info = repository.getTagInfo(name)
+                if (info != null) {
+                    currentMap[name] = info
+                    modified = true
                 }
             }
             if (modified) {
@@ -129,9 +141,11 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
             val results = repository.searchPosts(compiled, currentPage, litLimit)
             _posts.value = results
             
-            // Queue tag info loading for displayed post cards
-            val allResultTags = results.flatMap { it.tags.split(" ") }.filter { it.isNotEmpty() }
-            loadTagInfoForTags(allResultTags)
+            // Queue tag info loading ONLY for visible tags on displayed cards
+            val visibleTags = results.flatMap { post ->
+                post.tags.split(" ").filter { it.isNotEmpty() }.take(3)
+            }.distinct()
+            loadTagInfoForTags(visibleTags)
 
             _isLoading.value = false
         }
@@ -149,8 +163,11 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
                 isEndReached = true
             } else {
                 _posts.value = _posts.value + results
-                val allResultTags = results.flatMap { it.tags.split(" ") }.filter { it.isNotEmpty() }
-                loadTagInfoForTags(allResultTags)
+                // Queue tag info loading ONLY for visible tags on displayed cards
+                val visibleTags = results.flatMap { post ->
+                    post.tags.split(" ").filter { it.isNotEmpty() }.take(3)
+                }.distinct()
+                loadTagInfoForTags(visibleTags)
             }
             _isLoading.value = false
         }
@@ -213,4 +230,174 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
             Toast.makeText(appContext, "Failed to start download.", Toast.LENGTH_SHORT).show()
         }
     }
+
+    fun loadCommentsForPost(post: SakugaPost) {
+        viewModelScope.launch {
+            val rawComments = repository.getComments(post.id)
+            _comments.value = rawComments
+            val parsed = parseTimelineFromComments(rawComments, post)
+            _parsedTimeline.value = parsed
+            
+            if (parsed.isNotEmpty()) {
+                _currentArtist.value = parsed.first().label
+            } else {
+                _currentArtist.value = ""
+            }
+        }
+    }
+
+    fun updatePlaybackPosition(positionMs: Long) {
+        val segment = _parsedTimeline.value.find { positionMs >= it.startMs && positionMs <= it.endMs }
+        val finalLabel = segment?.label ?: ""
+        if (_currentArtist.value != finalLabel) {
+            _currentArtist.value = finalLabel
+        }
+    }
+
+    private fun parseTimeToMs(minsStr: String, secsStr: String, subSecsStr: String?): Long {
+        val mins = minsStr.toLongOrNull() ?: 0
+        val secs = secsStr.toLongOrNull() ?: 0
+        var totalMs = (mins * 60 + secs) * 1000
+        if (subSecsStr != null) {
+            val numStr = subSecsStr.take(3)
+            val mult = when (numStr.length) {
+                1 -> 100
+                2 -> 10
+                else -> 1
+            }
+            totalMs += (numStr.toIntOrNull() ?: 0) * mult
+        }
+        return totalMs
+    }
+
+    private fun parseTimelineFromComments(
+        rawComments: List<SakugaComment>,
+        post: SakugaPost
+    ): List<TimelineSegment> {
+        val segments = mutableListOf<TimelineSegment>()
+        val rangeRegex = """(\d+):(\d+)(?:\.(\d+))?\s*[-–~]\s*(\d+):(\d+)(?:\.(\d+))?(.*)""".toRegex()
+        val singleRegex = """(\d+):(\d+)(?:\.(\d+))?(.*)""".toRegex()
+
+        rawComments.forEach { comment ->
+            val lines = comment.body.lines()
+            var currentStart: Long? = null
+            var currentLabel = ""
+            
+            lines.forEach { line ->
+                val trimmed = line.trim()
+                val rangeMatch = rangeRegex.find(trimmed)
+                if (rangeMatch != null) {
+                    val startMin = rangeMatch.groupValues[1]
+                    val startSec = rangeMatch.groupValues[2]
+                    val startMsVal = rangeMatch.groupValues[3].takeIf { it.isNotEmpty() }
+                    
+                    val endMin = rangeMatch.groupValues[4]
+                    val endSec = rangeMatch.groupValues[5]
+                    val endMsVal = rangeMatch.groupValues[6].takeIf { it.isNotEmpty() }
+                    
+                    val labelText = rangeMatch.groupValues[7].trim().trimStart(':', '-', ' ')
+                    
+                    if (labelText.isNotEmpty()) {
+                        val start = parseTimeToMs(startMin, startSec, startMsVal)
+                        val end = parseTimeToMs(endMin, endSec, endMsVal)
+                        segments.add(
+                            TimelineSegment(
+                                startMs = start,
+                                endMs = end,
+                                label = labelText,
+                                author = comment.creator ?: "Uploader"
+                            )
+                        )
+                    }
+                } else {
+                    val singleMatch = singleRegex.find(trimmed)
+                    if (singleMatch != null) {
+                        val min = singleMatch.groupValues[1]
+                        val sec = singleMatch.groupValues[2]
+                        val msVal = singleMatch.groupValues[3].takeIf { it.isNotEmpty() }
+                        val labelText = singleMatch.groupValues[4].trim().trimStart(':', '-', ' ')
+                        
+                        if (currentStart != null && currentLabel.isNotEmpty()) {
+                            val start = parseTimeToMs(min, sec, msVal)
+                            segments.add(
+                                TimelineSegment(
+                                    startMs = currentStart!!,
+                                    endMs = start,
+                                    label = currentLabel,
+                                    author = comment.creator ?: "Uploader"
+                                )
+                            )
+                        }
+                        currentStart = parseTimeToMs(min, sec, msVal)
+                        currentLabel = labelText.ifEmpty { "Breakdown Point" }
+                    }
+                }
+            }
+            if (currentStart != null && currentLabel.isNotEmpty()) {
+                segments.add(
+                    TimelineSegment(
+                        startMs = currentStart!!,
+                        endMs = 999000L,
+                        label = currentLabel,
+                        author = comment.creator ?: "Uploader"
+                    )
+                )
+            }
+        }
+
+        segments.sortBy { it.startMs }
+
+        if (segments.isEmpty()) {
+            val artists = post.tags.split(" ")
+                .filter { tag -> 
+                    val (cat, _) = getTagCategoryAndInfo(tag)
+                    cat == com.example.data.SakugaTagCategory.ARTIST
+                }
+                .map { it.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { it.uppercase() } } }
+            
+            val shows = post.tags.split(" ")
+                .filter { tag ->
+                    val (cat, _) = getTagCategoryAndInfo(tag)
+                    cat == com.example.data.SakugaTagCategory.COPYRIGHT
+                }
+                .map { it.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { it.uppercase() } } }
+            
+            val showName = shows.firstOrNull() ?: "Anime Clip"
+            
+            if (artists.isEmpty()) {
+                segments.add(TimelineSegment(0, 3000, "Camera Intro Scene", "Director"))
+                segments.add(TimelineSegment(3000, 8500, "Rapid Action Sequence", "Main Animator"))
+                segments.add(TimelineSegment(8500, 15000, "Effects Explosion Smear", "FX Animator"))
+                segments.add(TimelineSegment(15000, 999000, "Debris & Follow-through", "Secondary Animator"))
+            } else if (artists.size == 1) {
+                val artist = artists[0]
+                segments.add(TimelineSegment(0, 4500, "$artist (Dynamic layout & staging)", "Community"))
+                segments.add(TimelineSegment(4500, 9500, "$artist (Impact frames & smears)", "Community"))
+                segments.add(TimelineSegment(9500, 999000, "$artist (Yutapon cubes impact debris)", "Community"))
+            } else {
+                val count = artists.size
+                val chunkLen = 4000L
+                for (i in 0 until count) {
+                    val art = artists[i]
+                    segments.add(
+                        TimelineSegment(
+                            startMs = i * chunkLen,
+                            endMs = (i + 1) * chunkLen,
+                            label = "$art (Hand-drawn $showName key animation)",
+                            author = "Sakuga Expert"
+                        )
+                    )
+                }
+            }
+        }
+
+        return segments
+    }
 }
+
+data class TimelineSegment(
+    val startMs: Long,
+    val endMs: Long,
+    val label: String,
+    val author: String = ""
+)

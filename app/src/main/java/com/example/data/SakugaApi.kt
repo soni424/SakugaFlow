@@ -17,5 +17,10 @@ interface SakugaApi {
         @Query("limit") limit: Int = 100,
         @Query("order") order: String? = "count"
     ): List<SakugaTag>
+
+    @GET("comment.json")
+    suspend fun getComments(
+        @Query("post_id") postId: Int
+    ): List<SakugaComment>
 }
 
