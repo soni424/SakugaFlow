@@ -464,15 +464,15 @@ fun PostItem(post: SakugaPost, viewModel: SakugaViewModel, onClick: () -> Unit) 
 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = post.author?.ifEmpty { "Unknown Author" } ?: "Unknown Author",
+                    text = "Score: ${post.score}",
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                val extSizeText = if (post.fileExt != null) "${post.fileExt.uppercase()} • Score: ${post.score}" else "Score: ${post.score}"
+                val extSizeText = if (post.fileExt != null) "${post.fileExt.uppercase()} • ID: ${post.id}" else "ID: ${post.id}"
                 Text(
                     text = extSizeText,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

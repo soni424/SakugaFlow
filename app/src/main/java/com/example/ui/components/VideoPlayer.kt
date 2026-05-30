@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,6 +27,10 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import android.view.LayoutInflater
+import com.example.R
+import com.example.ui.TimelineSegment
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun VideoPlayer(
@@ -34,6 +39,7 @@ fun VideoPlayer(
     seekToTriggerMs: Long?,
     onSeekConsumed: () -> Unit,
     onPositionChanged: (Long) -> Unit,
+    timelineSegments: List<TimelineSegment> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -135,9 +141,7 @@ fun VideoPlayer(
             ) {
                 AndroidView(
                     factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false // Disable standard default controllers
-                        }
+                        LayoutInflater.from(ctx).inflate(R.layout.custom_player_view, null) as PlayerView
                     },
                     update = { playerView ->
                         if (playerView.player != exoPlayer) {
@@ -183,21 +187,71 @@ fun VideoPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
-                Slider(
-                    value = if (durationMs > 0) currentPositionMs.toFloat() / durationMs.toFloat() else 0f,
-                    onValueChange = { percent ->
-                        val target = (percent * durationMs).toLong()
-                        exoPlayer.seekTo(target)
-                        currentPositionMs = target
-                    },
-                    colors = SliderDefaults.colors(
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(28.dp)
-                )
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Slider(
+                        value = if (durationMs > 0) currentPositionMs.toFloat() / durationMs.toFloat() else 0f,
+                        onValueChange = { percent ->
+                            val target = (percent * durationMs).toLong()
+                            exoPlayer.seekTo(target)
+                            currentPositionMs = target
+                        },
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                        ),
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Render dynamic markers from comments on the timeline
+                    if (durationMs > 0) {
+                        timelineSegments.filter { it.startMs > 0 && it.startMs <= durationMs }.forEach { segment ->
+                            val ratio = segment.startMs.toFloat() / durationMs.toFloat()
+                            val offset = (ratio * this.maxWidth.value).dp
+
+                            var showTooltip by remember { mutableStateOf(false) }
+
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = (offset - 6.dp).coerceAtLeast(0.dp))
+                                    .size(12.dp)
+                                    .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                                    .clickable {
+                                        exoPlayer.seekTo(segment.startMs)
+                                        currentPositionMs = segment.startMs
+                                        showTooltip = !showTooltip
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                )
+                            }
+
+                            if (showTooltip) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = (offset - 50.dp).coerceAtLeast(0.dp), y = (-36).dp)
+                                        .background(MaterialTheme.colorScheme.inverseSurface, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .widthIn(max = 140.dp)
+                                ) {
+                                    Text(
+                                        text = segment.label,
+                                        color = MaterialTheme.colorScheme.inverseOnSurface,
+                                        fontSize = 10.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Playback row
                 Row(
@@ -275,18 +329,19 @@ fun VideoPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // <<< Go to start (Seek to 0)
+                        val frameTime = (1000.0 / selectedFps).toLong()
+                        // Triple <<< : Move backward exactly 3 frames
                         MiniNavButton(label = "<<<") {
-                            exoPlayer.seekTo(0)
-                        }
-                        // << Seek backward 1 second
-                        MiniNavButton(label = "<<") {
-                            val seekPos = (currentPositionMs - 1000).coerceAtLeast(0)
+                            val seekPos = (currentPositionMs - (frameTime * 3)).coerceAtLeast(0)
                             exoPlayer.seekTo(seekPos)
                         }
-                        // < Move single frame backward
+                        // Double << : Move backward exactly 2 frames
+                        MiniNavButton(label = "<<" ) {
+                            val seekPos = (currentPositionMs - (frameTime * 2)).coerceAtLeast(0)
+                            exoPlayer.seekTo(seekPos)
+                        }
+                        // Single < : Move backward exactly 1 frame
                         MiniNavButton(label = "<") {
-                            val frameTime = (1000.0 / selectedFps).toLong()
                             val seekPos = (currentPositionMs - frameTime).coerceAtLeast(0)
                             exoPlayer.seekTo(seekPos)
                         }
@@ -320,20 +375,21 @@ fun VideoPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // > Move single frame forward
+                        val frameTime = (1000.0 / selectedFps).toLong()
+                        // Single > : Move forward exactly 1 frame
                         MiniNavButton(label = ">") {
-                            val frameTime = (1000.0 / selectedFps).toLong()
                             val seekPos = (currentPositionMs + frameTime).coerceAtMost(durationMs)
                             exoPlayer.seekTo(seekPos)
                         }
-                        // >> Seek forward 1 second
+                        // Double >> : Move forward exactly 2 frames
                         MiniNavButton(label = ">>") {
-                            val seekPos = (currentPositionMs + 1000).coerceAtMost(durationMs)
+                            val seekPos = (currentPositionMs + (frameTime * 2)).coerceAtMost(durationMs)
                             exoPlayer.seekTo(seekPos)
                         }
-                        // >>> Go to end
+                        // Triple >>> : Move forward exactly 3 frames
                         MiniNavButton(label = ">>>") {
-                            exoPlayer.seekTo(durationMs)
+                            val seekPos = (currentPositionMs + (frameTime * 3)).coerceAtMost(durationMs)
+                            exoPlayer.seekTo(seekPos)
                         }
                     }
                 }

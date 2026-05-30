@@ -232,6 +232,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun loadCommentsForPost(post: SakugaPost) {
+        _comments.value = emptyList()
+        _parsedTimeline.value = emptyList()
+        _currentArtist.value = ""
         viewModelScope.launch {
             val rawComments = repository.getComments(post.id)
             _comments.value = rawComments
@@ -275,78 +278,48 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         post: SakugaPost
     ): List<TimelineSegment> {
         val segments = mutableListOf<TimelineSegment>()
-        val rangeRegex = """(\d+):(\d+)(?:\.(\d+))?\s*[-–~]\s*(\d+):(\d+)(?:\.(\d+))?(.*)""".toRegex()
-        val singleRegex = """(\d+):(\d+)(?:\.(\d+))?(.*)""".toRegex()
+        // Match timestamps like 0:35.8 or 1:11 or 0:57
+        val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
 
         rawComments.forEach { comment ->
             val lines = comment.body.lines()
-            var currentStart: Long? = null
-            var currentLabel = ""
-            
             lines.forEach { line ->
                 val trimmed = line.trim()
-                val rangeMatch = rangeRegex.find(trimmed)
-                if (rangeMatch != null) {
-                    val startMin = rangeMatch.groupValues[1]
-                    val startSec = rangeMatch.groupValues[2]
-                    val startMsVal = rangeMatch.groupValues[3].takeIf { it.isNotEmpty() }
+                val match = timestampRegex.find(trimmed)
+                if (match != null) {
+                    val mins = match.groupValues[1]
+                    val secs = match.groupValues[2]
+                    val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
                     
-                    val endMin = rangeMatch.groupValues[4]
-                    val endSec = rangeMatch.groupValues[5]
-                    val endMsVal = rangeMatch.groupValues[6].takeIf { it.isNotEmpty() }
+                    val timestampMs = parseTimeToMs(mins, secs, subSec)
                     
-                    val labelText = rangeMatch.groupValues[7].trim().trimStart(':', '-', ' ')
+                    // Simple clean up of label: remove the timestamp itself from the comment line
+                    var cleanLine = trimmed.replace(match.value, "").trim()
+                    cleanLine = cleanLine.trimStart(':', '-', '–', '~', ' ', ',')
+                    if (cleanLine.isEmpty()) {
+                        cleanLine = comment.body.take(65).replace("\n", " ") + "..."
+                    }
                     
-                    if (labelText.isNotEmpty()) {
-                        val start = parseTimeToMs(startMin, startSec, startMsVal)
-                        val end = parseTimeToMs(endMin, endSec, endMsVal)
-                        segments.add(
-                            TimelineSegment(
-                                startMs = start,
-                                endMs = end,
-                                label = labelText,
-                                author = comment.creator ?: "Uploader"
-                            )
+                    segments.add(
+                        TimelineSegment(
+                            startMs = timestampMs,
+                            endMs = timestampMs + 3000,
+                            label = cleanLine,
+                            author = comment.creator ?: "Anonymous"
                         )
-                    }
-                } else {
-                    val singleMatch = singleRegex.find(trimmed)
-                    if (singleMatch != null) {
-                        val min = singleMatch.groupValues[1]
-                        val sec = singleMatch.groupValues[2]
-                        val msVal = singleMatch.groupValues[3].takeIf { it.isNotEmpty() }
-                        val labelText = singleMatch.groupValues[4].trim().trimStart(':', '-', ' ')
-                        
-                        if (currentStart != null && currentLabel.isNotEmpty()) {
-                            val start = parseTimeToMs(min, sec, msVal)
-                            segments.add(
-                                TimelineSegment(
-                                    startMs = currentStart!!,
-                                    endMs = start,
-                                    label = currentLabel,
-                                    author = comment.creator ?: "Uploader"
-                                )
-                            )
-                        }
-                        currentStart = parseTimeToMs(min, sec, msVal)
-                        currentLabel = labelText.ifEmpty { "Breakdown Point" }
-                    }
+                    )
                 }
             }
-            if (currentStart != null && currentLabel.isNotEmpty()) {
-                segments.add(
-                    TimelineSegment(
-                        startMs = currentStart!!,
-                        endMs = 999000L,
-                        label = currentLabel,
-                        author = comment.creator ?: "Uploader"
-                    )
-                )
-            }
         }
-
+        
         segments.sortBy { it.startMs }
-
+        // Adjust endMs of each segment to the next segment's startMs to keep it neat
+        for (i in 0 until segments.size - 1) {
+            val current = segments[i]
+            val next = segments[i + 1]
+            segments[i] = current.copy(endMs = next.startMs)
+        }
+        
         if (segments.isEmpty()) {
             val artists = post.tags.split(" ")
                 .filter { tag -> 

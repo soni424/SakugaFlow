@@ -134,6 +134,7 @@ fun DetailScreen(
                             seekToTriggerMs = seekToTriggerMs,
                             onSeekConsumed = { seekToTriggerMs = null },
                             onPositionChanged = { viewModel.updatePlaybackPosition(it) },
+                            timelineSegments = parsedTimeline,
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
@@ -257,6 +258,135 @@ fun DetailScreen(
                                                     )
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 1b. Real Video Comments Section
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Comment,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "Discussion & Comments",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                                    Text(
+                                        text = "${comments.size} comments",
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            if (comments.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No comments posted for this clip yet.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    comments.forEach { comment ->
+                                        // Match any timestamp inside the comment body and make it clickable!
+                                        val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
+                                        val match = timestampRegex.find(comment.body)
+
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(12.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.AccountCircle,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Text(
+                                                        text = comment.creator ?: "Anonymous",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                                if (match != null) {
+                                                    val mins = match.groupValues[1]
+                                                    val secs = match.groupValues[2]
+                                                    val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
+                                                    val timestampMs = parseTimeToMs(mins, secs, subSec)
+                                                    
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                                            .clickable {
+                                                                seekToTriggerMs = timestampMs
+                                                            }
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = match.value,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = comment.body,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                     }
                                 }
@@ -536,6 +666,13 @@ private fun formatTime(ms: Long): String {
     val seconds = totalSeconds % 60
     val tenthsOfSecond = (ms % 1000) / 100
     return "$minutes:${String.format("%02d", seconds)}.$tenthsOfSecond"
+}
+
+private fun parseTimeToMs(minsStr: String, secsStr: String, tenthsStr: String?): Long {
+    val mins = minsStr.toLongOrNull() ?: 0L
+    val secs = secsStr.toLongOrNull() ?: 0L
+    val tenths = tenthsStr?.toLongOrNull() ?: 0L
+    return (mins * 60 + secs) * 1000 + tenths * 100
 }
 
 @Composable
