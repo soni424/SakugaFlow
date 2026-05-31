@@ -197,8 +197,72 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun syncStatesFromQuery(query: String) {
+        val words = query.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        
+        // 1. Sort Order
+        val sortWord = words.find { it.startsWith("order:") }
+        if (sortWord != null) {
+            val sVal = sortWord.substringAfter("order:")
+            _sortOrder.value = sVal
+        } else {
+            _sortOrder.value = "date"
+        }
+
+        // 2. Rating Filter
+        val ratingWord = words.find { it.startsWith("rating:") }
+        if (ratingWord != null) {
+            val rVal = ratingWord.substringAfter("rating:")
+            _ratingFilter.value = rVal
+        } else {
+            _ratingFilter.value = "all"
+        }
+
+        // 3. Posts Limit
+        val limitWord = words.find { it.startsWith("limit:") }
+        if (limitWord != null) {
+            val lVal = limitWord.substringAfter("limit:")
+            if (lVal.isNotEmpty()) {
+                _postsLimit.value = lVal
+            }
+        } else {
+            _postsLimit.value = "20"
+        }
+
+        // 4. Solo KA
+        val hasSoloKa = words.any { it == "source:*solo*ka" }
+        _isSoloKa.value = hasSoloKa
+    }
+
+    private fun updateTagInQuery(query: String, key: String, value: String?): String {
+        val words = query.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }.toMutableList()
+        
+        if (key == "source") {
+            words.removeAll { it == "source:*solo*ka" }
+            if (value == "true") {
+                words.add("source:*solo*ka")
+            }
+        } else {
+            val index = words.indexOfFirst { it.startsWith("$key:") }
+            if (index != -1) {
+                if (value == null || value == "all" || (key == "order" && value == "date")) {
+                    words.removeAt(index)
+                } else {
+                    words[index] = "$key:$value"
+                }
+            } else {
+                if (value != null && value != "all" && !(key == "order" && value == "date")) {
+                    words.add("$key:$value")
+                }
+            }
+        }
+        
+        return words.joinToString(" ")
+    }
+
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
+        syncStatesFromQuery(query)
         autocompleteJob?.cancel()
 
         if (query.trim().isEmpty()) {
@@ -207,25 +271,35 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         autocompleteJob = viewModelScope.launch {
-            // Debounce matching for responsive typing
             kotlinx.coroutines.delay(180)
-            val results = repository.getAutocompleteTags(query)
-            _autocompleteSuggestions.value = results
+            val autocompleteBase = query.trim().split("\\s+".toRegex())
+                .filter { !it.contains(":") && !it.contains("*") }
+                .lastOrNull() ?: ""
+            if (autocompleteBase.isNotEmpty()) {
+                val results = repository.getAutocompleteTags(autocompleteBase)
+                _autocompleteSuggestions.value = results
+            }
         }
     }
 
     fun updateSortOrder(order: String) {
         _sortOrder.value = order
-        search(_searchQuery.value)
+        val updatedQuery = updateTagInQuery(_searchQuery.value, "order", order)
+        _searchQuery.value = updatedQuery
+        search(updatedQuery)
     }
 
     fun updateRatingFilter(rating: String) {
         _ratingFilter.value = rating
-        search(_searchQuery.value)
+        val updatedQuery = updateTagInQuery(_searchQuery.value, "rating", rating)
+        _searchQuery.value = updatedQuery
+        search(updatedQuery)
     }
 
     fun updatePostsLimit(limit: String) {
         _postsLimit.value = limit
+        val updatedQuery = updateTagInQuery(_searchQuery.value, "limit", if (limit.trim().isEmpty()) null else limit.trim())
+        _searchQuery.value = updatedQuery
     }
 
     fun commitPostsLimitSearch() {
@@ -234,7 +308,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
 
     fun toggleSoloKa(enabled: Boolean) {
         _isSoloKa.value = enabled
-        search(_searchQuery.value)
+        val updatedQuery = updateTagInQuery(_searchQuery.value, "source", if (enabled) "true" else null)
+        _searchQuery.value = updatedQuery
+        search(updatedQuery)
     }
 
     fun getTagCategoryAndInfo(tagName: String): Pair<com.example.data.SakugaTagCategory, com.example.data.SakugaTag?> {
@@ -267,6 +343,18 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
                 _tagInfoMap.value = currentMap
             }
         }
+    }
+
+    suspend fun fetchPostById(id: Int): SakugaPost? {
+        return repository.getPostById(id)
+    }
+
+    suspend fun queryPostsSync(tags: String, page: Int = 1, limit: Int = 20): List<SakugaPost> {
+        return repository.searchPosts(tags, page, limit)
+    }
+
+    suspend fun queryTagsSync(limit: Int = 100, order: String = "count"): List<com.example.data.SakugaTag> {
+        return repository.getTags(limit, order)
     }
 
     fun search(query: String) {
@@ -316,26 +404,28 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun buildFinalQuery(base: String, sort: String, rating: String, soloKa: Boolean): String {
-        val parts = mutableListOf<String>()
-        val trimmedBase = base.trim()
-
-        if (trimmedBase.isNotEmpty()) {
-            parts.add(trimmedBase)
-        }
+        val words = base.trim().split("\\s+".toRegex())
+            .filter { word ->
+                !word.startsWith("order:") &&
+                !word.startsWith("rating:") &&
+                !word.startsWith("limit:") &&
+                word != "source:*solo*ka"
+            }
+            .toMutableList()
 
         if (rating != "all") {
-            parts.add("rating:$rating")
+            words.add("rating:$rating")
         }
 
         if (sort != "date") {
-            parts.add("order:$sort")
+            words.add("order:$sort")
         }
 
         if (soloKa) {
-            parts.add("source:*solo*ka")
+            words.add("source:*solo*ka")
         }
 
-        return parts.joinToString(" ")
+        return words.joinToString(" ")
     }
 
     fun toggleSave(post: SakugaPost, isCurrentlySaved: Boolean) {

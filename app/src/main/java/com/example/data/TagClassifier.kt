@@ -57,4 +57,74 @@ object TagClassifier {
         // Heuristics for some structural patterns
         return SakugaTagCategory.GENERAL
     }
+
+    fun extractCandidateName(text: String): String {
+        var startIndex = 0
+        while (startIndex < text.length) {
+            val char = text[startIndex]
+            if (char.isLetter()) {
+                break
+            }
+            if (char.isDigit() || char == ':' || char == '.' || char == '-' || char == '–' || char == '~' || char.isWhitespace()) {
+                startIndex++
+            } else {
+                startIndex++
+            }
+        }
+        return text.substring(startIndex).trim()
+    }
+
+    fun isValidArtist(text: String, tagInfoMap: Map<String, SakugaTag> = emptyMap()): Boolean {
+        val candidate = extractCandidateName(text)
+        if (candidate.isEmpty()) return false
+
+        // Step B Check Length First: Artist names are short.
+        if (candidate.length > 20) {
+            return false
+        }
+
+        // Step A: Artist Tag Database Cross-Referencing (Primary Method)
+        val normalized = candidate.lowercase().replace(" ", "_").trim()
+        
+        // Check fetched/runtime Booru tag info map
+        val tagFromMap = tagInfoMap[normalized]
+        if (tagFromMap != null) {
+            return tagFromMap.type == 1
+        }
+        
+        // Check local database/heuristics classifier
+        if (classify(normalized) == SakugaTagCategory.ARTIST) {
+            return true
+        }
+
+        // Analyze string structure
+        val words = candidate.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        if (words.size > 3) {
+            return false
+        }
+
+        val isEntirelyLowercase = candidate == candidate.lowercase()
+        val firstChar = candidate.firstOrNull()
+        val startsWithLowercase = firstChar?.isLowerCase() == true
+        if (isEntirelyLowercase || startsWithLowercase) {
+            return false
+        }
+
+        // Step C: Conversational Word Filter
+        val conversationalWords = setOf(
+            "is", "are", "was", "were", "the", "a", "an", "and", "to", "amazing", "insane", 
+            "good", "bad", "why", "teleport", "look", "think", "at", "energy", "of", "in", 
+            "for", "on", "with", "by", "this", "that", "it", "so", "very", "much", "many", 
+            "some", "any", "no", "yes", "or", "but", "about", "years", "ago", "hours", 
+            "mins", "seconds", "secs", "frame", "frames", "clip", "clips", "animator", 
+            "animation", "scene", "episode", "ep", "cut", "key", "gorgeous", "beautiful", 
+            "incredible", "awesome", "cool", "great", "nice", "love", "like", "favorite", 
+            "favourite", "has", "have", "had", "will", "would", "should", "could", "from"
+        )
+        if (words.any { conversationalWords.contains(it.lowercase()) }) {
+            return false
+        }
+
+        return true
+    }
 }

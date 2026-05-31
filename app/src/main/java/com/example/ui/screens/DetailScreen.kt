@@ -45,8 +45,21 @@ fun DetailScreen(
     val savedPosts by viewModel.savedPosts.collectAsState()
     val isDark = isSystemInDarkTheme()
     
-    val post = remember(postId, posts, savedPosts) {
+    val postFromState = remember(postId, posts, savedPosts) {
         posts.find { it.id == postId } ?: savedPosts.find { it.id == postId }
+    }
+
+    var loadedPost by remember { mutableStateOf<SakugaPost?>(null) }
+    var isFetching by remember { mutableStateOf(false) }
+
+    val post = postFromState ?: loadedPost
+
+    LaunchedEffect(postId, postFromState) {
+        if (postFromState == null && loadedPost == null) {
+            isFetching = true
+            loadedPost = viewModel.fetchPostById(postId)
+            isFetching = false
+        }
     }
 
     val tagsList = remember(post?.tags) {
@@ -109,7 +122,11 @@ fun DetailScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Post not found.", color = MaterialTheme.colorScheme.onBackground)
+                if (isFetching) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Text("Post not found.", color = MaterialTheme.colorScheme.onBackground)
+                }
             }
         } else {
             val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -124,9 +141,14 @@ fun DetailScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isVideo) {
+                        val verifiedArtist = if (com.example.data.TagClassifier.isValidArtist(currentArtist, tagInfoMap)) {
+                            currentArtist
+                        } else {
+                            ""
+                        }
                         VideoPlayer(
                             videoUrl = post.fileUrl,
-                            currentArtist = currentArtist,
+                            currentArtist = verifiedArtist,
                             seekToTriggerMs = seekToTriggerMs,
                             onSeekConsumed = { seekToTriggerMs = null },
                             onPositionChanged = { viewModel.updatePlaybackPosition(it) },

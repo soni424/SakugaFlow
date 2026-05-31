@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.Settings
@@ -34,6 +35,9 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SavedScreen
 import com.example.ui.screens.OfflineScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.ExploreScreen
+import com.example.ui.screens.PopularDetailScreen
+import com.example.ui.screens.TagPostsScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,7 +50,7 @@ fun SakugaApp() {
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
 
-    val isTopLevelRoute = currentRoute == "home" || currentRoute == "saved" || currentRoute == "offline" || currentRoute == "settings"
+    val isTopLevelRoute = currentRoute == "home" || currentRoute == "explore" || currentRoute == "saved" || currentRoute == "offline" || currentRoute == "settings"
 
     // Collect theme setting dynamically from viewModel
     val themeState by viewModel.themeMode.collectAsState()
@@ -126,6 +130,17 @@ fun SakugaApp() {
                             label = { Text("Feed") }
                         )
                         NavigationBarItem(
+                            selected = currentRoute == "explore",
+                            onClick = {
+                                navController.navigate("explore") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            },
+                            icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                            label = { Text("Explore") }
+                        )
+                        NavigationBarItem(
                             selected = currentRoute == "saved",
                             onClick = {
                                 navController.navigate("saved") {
@@ -191,6 +206,35 @@ fun SakugaApp() {
                     SettingsScreen(
                         viewModel = viewModel,
                         onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable("explore") {
+                    ExploreScreen(
+                        viewModel = viewModel,
+                        onNavigateToSearch = { 
+                            navController.navigate("home")
+                        },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") },
+                        onNavigateToTimeframe = { timeframe -> navController.navigate("popular_detail/$timeframe") },
+                        onNavigateToTag = { tag -> navController.navigate("tag_posts/$tag") }
+                    )
+                }
+                composable("popular_detail/{timeframe}") { backStackEntry ->
+                    val timeframe = backStackEntry.arguments?.getString("timeframe") ?: "day"
+                    PopularDetailScreen(
+                        viewModel = viewModel,
+                        timeframe = timeframe,
+                        onBackClick = { navController.popBackStack() },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
+                    )
+                }
+                composable("tag_posts/{tag}") { backStackEntry ->
+                    val tag = backStackEntry.arguments?.getString("tag") ?: ""
+                    TagPostsScreen(
+                        viewModel = viewModel,
+                        tag = tag,
+                        onBackClick = { navController.popBackStack() },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
                     )
                 }
                 composable("detail/{postId}") { backStackEntry ->

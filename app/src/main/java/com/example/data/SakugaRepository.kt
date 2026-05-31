@@ -94,6 +94,19 @@ class SakugaRepository(context: Context) {
         }
     }
 
+    suspend fun getTags(limit: Int = 100, order: String = "count"): List<SakugaTag> {
+        return try {
+            val response = api.getTags(limit = limit, order = order)
+            response.forEach { tag ->
+                tagCache[tag.name.lowercase().trim()] = tag
+            }
+            response
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun getAutocompleteTags(query: String): List<SakugaTag> {
         val sanitized = query.lowercase().trim()
         if (sanitized.isEmpty()) return emptyList()
@@ -138,6 +151,15 @@ class SakugaRepository(context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        }
+    }
+
+    suspend fun getPostById(id: Int): SakugaPost? {
+        return try {
+            api.getPosts(tags = "id:$id", limit = 1).firstOrNull()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
