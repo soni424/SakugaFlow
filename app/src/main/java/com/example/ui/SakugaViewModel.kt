@@ -28,6 +28,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
+    private val _selectedTags = MutableStateFlow<List<String>>(emptyList())
+    val selectedTags = _selectedTags.asStateFlow()
+
     private val _posts = MutableStateFlow<List<SakugaPost>>(emptyList())
     val posts = _posts.asStateFlow()
 
@@ -64,6 +67,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     private val _parsedTimeline = MutableStateFlow<List<TimelineSegment>>(emptyList())
     val parsedTimeline = _parsedTimeline.asStateFlow()
 
+    private val _videoDurationMs = MutableStateFlow<Long>(0L)
+    val videoDurationMs = _videoDurationMs.asStateFlow()
+
     private val _currentArtist = MutableStateFlow("")
     val currentArtist = _currentArtist.asStateFlow()
 
@@ -94,6 +100,12 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     val themeMode = MutableStateFlow(prefs.getString("theme_mode", "system") ?: "system")
 
     val savedPosts: StateFlow<List<SakugaPost>> = repository.savedPosts.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val watchedPosts: StateFlow<List<com.example.data.WatchedPost>> = repository.watchedPosts.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -267,6 +279,7 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
 
         if (query.trim().isEmpty()) {
             _autocompleteSuggestions.value = emptyList()
+            // Reset autocomplete predictions
             return
         }
 
@@ -278,7 +291,74 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
             if (autocompleteBase.isNotEmpty()) {
                 val results = repository.getAutocompleteTags(autocompleteBase)
                 _autocompleteSuggestions.value = results
+            } else {
+                _autocompleteSuggestions.value = emptyList()
             }
+        }
+    }
+
+    fun addSelectedTag(tag: String) {
+        val normalized = tag.lowercase().trim().replace(" ", "_")
+        if (normalized.isEmpty()) return
+        val current = _selectedTags.value.toMutableList()
+        if (!current.contains(normalized)) {
+            current.add(normalized)
+            _selectedTags.value = current
+            executeMultiTagSearch()
+        }
+    }
+
+    fun removeSelectedTag(tag: String) {
+        val normalized = tag.lowercase().trim().replace(" ", "_")
+        val current = _selectedTags.value.toMutableList()
+        if (current.remove(normalized)) {
+            _selectedTags.value = current
+            executeMultiTagSearch()
+        }
+    }
+
+    fun editSelectedTag(tag: String) {
+        val normalized = tag.lowercase().trim().replace(" ", "_")
+        val current = _selectedTags.value.toMutableList()
+        current.remove(normalized)
+        _selectedTags.value = current
+        
+        // Populate the search input bar with this tag's text
+        updateSearchQuery(normalized)
+        executeMultiTagSearch()
+    }
+
+    fun clearSelectedTags() {
+        _selectedTags.value = emptyList()
+    }
+
+    fun addSuggestionToQuery(targetTag: String) {
+        addSelectedTag(targetTag)
+        // Clean typing tokens from searchQuery
+        val words = _searchQuery.value.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }.toMutableList()
+        words.removeAll { !it.contains(":") && !it.contains("*") }
+        _searchQuery.value = words.joinToString(" ")
+    }
+
+    fun executeMultiTagSearch() {
+        currentPage = 1
+        isEndReached = false
+        val compiled = buildFinalQuery(_searchQuery.value, _sortOrder.value, _ratingFilter.value, _isSoloKa.value)
+        if (compiled.trim().isNotEmpty()) {
+            saveSearchQueryToHistory(compiled)
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            val litLimit = _postsLimit.value.toIntOrNull() ?: 20
+            val results = repository.searchPosts(compiled, currentPage, litLimit)
+            _posts.value = results
+            
+            // Queue tag info loading ONLY for visible tags on displayed cards
+            val visibleTags = results.flatMap { post ->
+                post.tags.split(" ").filter { it.isNotEmpty() }.take(3)
+            }.distinct()
+            loadTagInfoForTags(visibleTags)
+            _isLoading.value = false
         }
     }
 
@@ -286,14 +366,14 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         _sortOrder.value = order
         val updatedQuery = updateTagInQuery(_searchQuery.value, "order", order)
         _searchQuery.value = updatedQuery
-        search(updatedQuery)
+        executeMultiTagSearch()
     }
 
     fun updateRatingFilter(rating: String) {
         _ratingFilter.value = rating
         val updatedQuery = updateTagInQuery(_searchQuery.value, "rating", rating)
         _searchQuery.value = updatedQuery
-        search(updatedQuery)
+        executeMultiTagSearch()
     }
 
     fun updatePostsLimit(limit: String) {
@@ -303,14 +383,14 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun commitPostsLimitSearch() {
-        search(_searchQuery.value)
+        executeMultiTagSearch()
     }
 
     fun toggleSoloKa(enabled: Boolean) {
         _isSoloKa.value = enabled
         val updatedQuery = updateTagInQuery(_searchQuery.value, "source", if (enabled) "true" else null)
         _searchQuery.value = updatedQuery
-        search(updatedQuery)
+        executeMultiTagSearch()
     }
 
     fun getTagCategoryAndInfo(tagName: String): Pair<com.example.data.SakugaTagCategory, com.example.data.SakugaTag?> {
@@ -358,7 +438,29 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun search(query: String) {
-        _searchQuery.value = query
+        syncStatesFromQuery(query)
+        
+        // Extract tags and filter parameters
+        val words = query.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val tagWords = words.filter { word ->
+            !word.startsWith("order:") &&
+            !word.startsWith("rating:") &&
+            !word.startsWith("limit:") &&
+            word != "source:*solo*ka"
+        }
+        
+        // Set selected chips
+        _selectedTags.value = tagWords
+        
+        // Keep ONLY filters in the search box text so we don't duplicate tags
+        val filterOnlyWords = words.filter { word ->
+            word.startsWith("order:") ||
+            word.startsWith("rating:") ||
+            word.startsWith("limit:") ||
+            word == "source:*solo*ka"
+        }
+        _searchQuery.value = filterOnlyWords.joinToString(" ")
+
         currentPage = 1
         isEndReached = false
         if (query.trim().isNotEmpty()) {
@@ -366,7 +468,7 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
         viewModelScope.launch {
             _isLoading.value = true
-            val compiled = buildFinalQuery(query, _sortOrder.value, _ratingFilter.value, _isSoloKa.value)
+            val compiled = buildFinalQuery(_searchQuery.value, _sortOrder.value, _ratingFilter.value, _isSoloKa.value)
             val litLimit = _postsLimit.value.toIntOrNull() ?: 20
             val results = repository.searchPosts(compiled, currentPage, litLimit)
             _posts.value = results
@@ -404,15 +506,24 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun buildFinalQuery(base: String, sort: String, rating: String, soloKa: Boolean): String {
-        val words = base.trim().split("\\s+".toRegex())
-            .filter { word ->
-                !word.startsWith("order:") &&
-                !word.startsWith("rating:") &&
-                !word.startsWith("limit:") &&
-                word != "source:*solo*ka"
-            }
-            .toMutableList()
+        val words = mutableListOf<String>()
+        
+        // 1. Add current tag chips first
+        words.addAll(_selectedTags.value)
 
+        // 2. Add search string text if it is a tag (exclude standard filters or duplicates)
+        val baseWords = base.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        baseWords.forEach { word ->
+            if (!word.startsWith("order:") && 
+                !word.startsWith("rating:") && 
+                !word.startsWith("limit:") && 
+                word != "source:*solo*ka" &&
+                !words.contains(word)) {
+                words.add(word)
+            }
+        }
+
+        // 3. Add filters
         if (rating != "all") {
             words.add("rating:$rating")
         }
@@ -435,6 +546,24 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 repository.savePost(post)
             }
+        }
+    }
+
+    fun addToWatchHistory(post: SakugaPost) {
+        viewModelScope.launch {
+            repository.addWatchedPost(post)
+        }
+    }
+
+    fun removeWatchedPost(id: Int) {
+        viewModelScope.launch {
+            repository.removeWatchedPost(id)
+        }
+    }
+
+    fun clearWatchedHistory() {
+        viewModelScope.launch {
+            repository.clearWatchedHistory()
         }
     }
 
@@ -483,6 +612,7 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         _discussionComments.value = emptyList()
         _parsedTimeline.value = emptyList()
         _currentArtist.value = ""
+        _videoDurationMs.value = 0L
         viewModelScope.launch {
             val rawComments = repository.getComments(post.id)
             _comments.value = rawComments
@@ -511,6 +641,22 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateVideoDuration(durationMs: Long) {
+        if (_videoDurationMs.value != durationMs) {
+            _videoDurationMs.value = durationMs
+            val updated = _parsedTimeline.value.map { segment ->
+                if (segment.isEnd) {
+                    segment.copy(endMs = durationMs)
+                } else {
+                    segment
+                }
+            }
+            if (updated != _parsedTimeline.value) {
+                _parsedTimeline.value = updated
+            }
+        }
+    }
+
     private fun parseTimeToMs(minsStr: String, secsStr: String, subSecsStr: String?): Long {
         val mins = minsStr.toLongOrNull() ?: 0
         val secs = secsStr.toLongOrNull() ?: 0
@@ -534,44 +680,77 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         val segments = mutableListOf<TimelineSegment>()
         // Match timestamps like 0:35.8 or 1:11 or 0:57
         val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
+        val endKeywordRegex = """(\d+):(\d{2})(?:\.(\d+))?\s*(?::|to|till|until|-|–|~)?\s*\b(END)\b""".toRegex(RegexOption.IGNORE_CASE)
 
         rawComments.forEach { comment ->
             val lines = comment.body.lines()
             lines.forEach { line ->
                 val trimmed = line.trim()
-                val match = timestampRegex.find(trimmed)
-                if (match != null) {
-                    val mins = match.groupValues[1]
-                    val secs = match.groupValues[2]
-                    val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
+                val matchEnd = endKeywordRegex.find(trimmed)
+                if (matchEnd != null) {
+                    val mins = matchEnd.groupValues[1]
+                    val secs = matchEnd.groupValues[2]
+                    val subSec = matchEnd.groupValues[3].takeIf { it.isNotEmpty() }
                     
                     val timestampMs = parseTimeToMs(mins, secs, subSec)
                     
                     // Simple clean up of label: remove the timestamp itself from the comment line
-                    var cleanLine = trimmed.replace(match.value, "").trim()
+                    var cleanLine = trimmed.replace("${mins}:${secs}" + (if (subSec != null) ".$subSec" else ""), "").trim()
                     cleanLine = cleanLine.trimStart(':', '-', '–', '~', ' ', ',')
                     if (cleanLine.isEmpty()) {
                         cleanLine = comment.body.take(65).replace("\n", " ") + "..."
                     }
                     
+                    val duration = _videoDurationMs.value
+                    val finalEndMs = if (duration > 0L) duration else (timestampMs + 3000L)
+
                     segments.add(
                         TimelineSegment(
                             startMs = timestampMs,
-                            endMs = timestampMs + 3000,
+                            endMs = finalEndMs,
                             label = cleanLine,
-                            author = comment.creator ?: "Anonymous"
+                            author = comment.creator ?: "Anonymous",
+                            isEnd = true
                         )
                     )
+                } else {
+                    val match = timestampRegex.find(trimmed)
+                    if (match != null) {
+                        val mins = match.groupValues[1]
+                        val secs = match.groupValues[2]
+                        val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
+                        
+                        val timestampMs = parseTimeToMs(mins, secs, subSec)
+                        
+                        // Simple clean up of label: remove the timestamp itself from the comment line
+                        var cleanLine = trimmed.replace(match.value, "").trim()
+                        cleanLine = cleanLine.trimStart(':', '-', '–', '~', ' ', ',')
+                        if (cleanLine.isEmpty()) {
+                            cleanLine = comment.body.take(65).replace("\n", " ") + "..."
+                        }
+                        
+                        segments.add(
+                            TimelineSegment(
+                                startMs = timestampMs,
+                                endMs = timestampMs + 3000,
+                                label = cleanLine,
+                                author = comment.creator ?: "Anonymous",
+                                isEnd = false
+                            )
+                        )
+                    }
                 }
             }
         }
         
         segments.sortBy { it.startMs }
-        // Adjust endMs of each segment to the next segment's startMs to keep it neat
+        // Adjust endMs of each segment to the next segment's startMs to keep it neat (unless it's an end segment)
         for (i in 0 until segments.size - 1) {
             val current = segments[i]
             val next = segments[i + 1]
-            segments[i] = current.copy(endMs = next.startMs)
+            if (!current.isEnd) {
+                segments[i] = current.copy(endMs = next.startMs)
+            }
         }
 
         return segments
@@ -582,5 +761,6 @@ data class TimelineSegment(
     val startMs: Long,
     val endMs: Long,
     val label: String,
-    val author: String = ""
+    val author: String = "",
+    val isEnd: Boolean = false
 )

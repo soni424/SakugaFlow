@@ -19,4 +19,16 @@ interface PostDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM saved_posts WHERE id = :id)")
     fun isPostSaved(id: Int): Flow<Boolean>
+
+    @Query("SELECT * FROM watched_posts ORDER BY watchedTimestamp DESC")
+    fun getAllWatchedPosts(): Flow<List<WatchedPost>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWatchedPost(post: WatchedPost)
+
+    @Query("DELETE FROM watched_posts WHERE id = :id")
+    suspend fun deleteWatchedPostById(id: Int)
+
+    @Query("DELETE FROM watched_posts")
+    suspend fun clearAllWatchedPosts()
 }

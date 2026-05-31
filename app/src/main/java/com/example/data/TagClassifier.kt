@@ -127,4 +127,46 @@ object TagClassifier {
 
         return true
     }
+
+    val aliasMap = mapOf(
+        "effect" to "effects",
+        "bg" to "background_animation",
+        "background" to "background_animation",
+        "acting" to "character_acting",
+        "jujuts" to "jujutsu_kaisen_series",
+        "jujutsu" to "jujutsu_kaisen_series",
+        "yutapon" to "yutapon_cubes",
+        "anim" to "animation",
+        "explo" to "explosions",
+        "explosion" to "explosions",
+        "smears" to "smear",
+        "water" to "water_effects",
+        "fire" to "fire_effects",
+        "smoke" to "smoke_effects",
+        "debris" to "debris_effects",
+        "liquid" to "liquid_effects",
+        "nakamura" to "yutaka_nakamura",
+        "yamashita" to "shingo_yamashita",
+        "imaishi" to "hiroyuki_imaishi",
+        "matsumoto" to "norio_matsumoto"
+    )
+
+    fun getCorrectionForAlias(query: String): Pair<String, String>? {
+        val q = query.lowercase().trim()
+        if (q.isEmpty()) return null
+        
+        // Exact match first
+        val target = aliasMap[q]
+        if (target != null) {
+            return Pair(q, target)
+        }
+        
+        // Prefix/contains match
+        for ((alias, tgt) in aliasMap) {
+            if (alias.startsWith(q) || q.startsWith(alias)) {
+                return Pair(alias, tgt)
+            }
+        }
+        return null
+    }
 }

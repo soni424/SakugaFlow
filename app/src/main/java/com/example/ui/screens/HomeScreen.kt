@@ -23,6 +23,9 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,6 +87,7 @@ fun HomeScreen(
         val recentSearches by viewModel.recentSearches.collectAsState()
         val suggestions by viewModel.autocompleteSuggestions.collectAsState()
         val popularTags by viewModel.popularTags.collectAsState()
+        val selectedTags by viewModel.selectedTags.collectAsState()
 
         Row(
             modifier = Modifier
@@ -96,16 +100,21 @@ fun HomeScreen(
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 modifier = Modifier
                     .weight(1f)
-                    .onFocusChanged { isSearchFocused = it.isFocused },
+                    .onFocusChanged { isSearchFocused = it.isFocused }
+                    .testTag("search_bar_input"),
                 placeholder = { Text("Search", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 trailingIcon = { 
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { 
-                            viewModel.updateSearchQuery("")
-                            viewModel.search("") 
-                            keyboardController?.hide()
-                        }) {
+                    if (searchQuery.isNotEmpty() || selectedTags.isNotEmpty()) {
+                        IconButton(
+                            onClick = { 
+                                viewModel.updateSearchQuery("")
+                                viewModel.clearSelectedTags()
+                                viewModel.search("") 
+                                keyboardController?.hide()
+                            },
+                            modifier = Modifier.testTag("clear_search_button")
+                        ) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } 
@@ -120,7 +129,16 @@ fun HomeScreen(
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { 
-                    viewModel.search(searchQuery.trim())
+                    val q = searchQuery.trim()
+                    if (q.isNotEmpty()) {
+                        val words = q.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                        val tags = words.filter { !it.contains(":") && !it.contains("*") }
+                        tags.forEach { tag ->
+                            viewModel.addSelectedTag(tag)
+                        }
+                        val filters = words.filter { it.contains(":") || it.contains("*") }
+                        viewModel.updateSearchQuery(filters.joinToString(" "))
+                    }
                     isSearchFocused = false
                     keyboardController?.hide()
                 })
@@ -133,7 +151,9 @@ fun HomeScreen(
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = if (expandedFilters) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ),
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("toggle_filters_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.FilterList,
@@ -151,7 +171,78 @@ fun HomeScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Shifted horizontal scrollable tag bar directly beneath the newly condensed search/filter bar
+                // 1. Interactive selected tag chips row
+                if (selectedTags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("selected_tags_row"),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        selectedTags.forEach { tag ->
+                            val displayName = remember(tag) {
+                                tag.split('_').joinToString(" ") { word ->
+                                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1E293B)) // dark gray-slate background
+                                    .testTag("tag_chip_$tag"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Text part is clickable to edit
+                                Box(
+                                    modifier = Modifier
+                                        .clickable {
+                                            viewModel.editSelectedTag(tag)
+                                            isSearchFocused = true
+                                        }
+                                        .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+                                ) {
+                                    Text(
+                                        text = displayName,
+                                        color = Color(0xFFF1F5F9), // light text
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .height(16.dp)
+                                        .width(1.dp)
+                                        .background(Color(0xFF334155))
+                                )
+                                
+                                // Close button part is clickable to remove
+                                IconButton(
+                                    onClick = {
+                                        viewModel.removeSelectedTag(tag)
+                                    },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .padding(4.dp)
+                                        .testTag("remove_tag_button_$tag")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove tag $tag",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Clickable Shortcut Popular Tags Horizontal scroll bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -160,7 +251,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     popularTags.forEach { tag ->
-                        val isSelected = searchQuery.lowercase().contains(tag.name.lowercase())
+                        val isSelected = selectedTags.contains(tag.name.lowercase())
                         val bgColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         
@@ -176,9 +267,11 @@ fun HomeScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(bgColor)
                                 .clickable { 
-                                    val newQuery = if (searchQuery.trim().isEmpty()) tag.name else "$searchQuery ${tag.name}"
-                                    viewModel.updateSearchQuery(newQuery)
-                                    viewModel.search(newQuery) 
+                                    if (isSelected) {
+                                        viewModel.removeSelectedTag(tag.name)
+                                    } else {
+                                        viewModel.addSelectedTag(tag.name)
+                                    }
                                 }
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
@@ -187,7 +280,7 @@ fun HomeScreen(
                                 color = textColor,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
-                            )
+                              )
                         }
                     }
                 }
@@ -411,7 +504,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
+                                  Text(
                                     text = "Recent Searches",
                                     style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.primary
@@ -448,7 +541,6 @@ fun HomeScreen(
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(MaterialTheme.colorScheme.background)
                                                 .clickable {
-                                                    viewModel.updateSearchQuery(term)
                                                     viewModel.search(term)
                                                     isSearchFocused = false
                                                     keyboardController?.hide()
@@ -465,6 +557,15 @@ fun HomeScreen(
                                 }
                             }
                         } else {
+                            val typedWord = remember(searchQuery) {
+                                searchQuery.trim().split("\\s+".toRegex())
+                                    .filter { !it.contains(":") && !it.contains("*") }
+                                    .lastOrNull() ?: ""
+                            }
+                            val correction = remember(typedWord) {
+                                com.example.data.TagClassifier.getCorrectionForAlias(typedWord)
+                            }
+
                             Text(
                                 text = "Tag Predictions",
                                 style = MaterialTheme.typography.titleSmall,
@@ -472,30 +573,84 @@ fun HomeScreen(
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            if (suggestions.isEmpty()) {
-                                Text(
-                                    text = "No suggestions found.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(vertical = 12.dp)
-                                )
-                            } else {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
+
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                // 1. Alias correction row at the top (if present)
+                                if (correction != null) {
+                                    val (alias, target) = correction
+                                    if (!selectedTags.contains(target)) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    viewModel.addSuggestionToQuery(target)
+                                                    isSearchFocused = false
+                                                    keyboardController?.hide()
+                                                }
+                                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                                                .padding(vertical = 10.dp, horizontal = 12.dp)
+                                                .testTag("correction_row_$alias"),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.TrendingUp,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = alias,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "→",
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = target,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (suggestions.isEmpty() && correction == null) {
+                                    Text(
+                                        text = "No suggestions found.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 12.dp)
+                                    )
+                                } else {
                                     suggestions.forEach { tag ->
                                         val cat = com.example.data.SakugaTagCategory.fromId(tag.type)
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
-                                                    viewModel.updateSearchQuery(tag.name)
-                                                    viewModel.search(tag.name)
+                                                    viewModel.addSuggestionToQuery(tag.name)
                                                     isSearchFocused = false
                                                     keyboardController?.hide()
                                                 }
-                                                .padding(vertical = 8.dp, horizontal = 12.dp),
+                                                .padding(vertical = 8.dp, horizontal = 12.dp)
+                                                .testTag("suggestion_row_${tag.name}"),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
@@ -510,12 +665,12 @@ fun HomeScreen(
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Spacer(modifier = Modifier.width(12.dp))
-                                                Text(
+                                                BoldMatchingText(
                                                     text = tag.name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    highlight = typedWord,
+                                                    colorSelector = {
+                                                        Color(if (isSystemInDarkTheme()) cat.darkColorHex else cat.lightColorHex)
+                                                    }
                                                 )
                                             }
                                             Surface(
@@ -539,6 +694,47 @@ fun HomeScreen(
             }
         }
     }
+}
+
+@Composable
+fun BoldMatchingText(
+    text: String,
+    highlight: String,
+    colorSelector: @Composable () -> Color
+) {
+    val annotatedString = remember(text, highlight) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            val h = highlight.lowercase().trim()
+            if (h.isEmpty()) {
+                append(text)
+            } else {
+                var startIndex = 0
+                val textLower = text.lowercase()
+                while (startIndex < text.length) {
+                    val index = textLower.indexOf(h, startIndex)
+                    if (index == -1) {
+                        append(text.substring(startIndex))
+                        break
+                    } else {
+                        if (index > startIndex) {
+                            append(text.substring(startIndex, index))
+                        }
+                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Black))
+                        append(text.substring(index, index + h.length))
+                        pop()
+                        startIndex = index + h.length
+                    }
+                }
+            }
+        }
+    }
+    Text(
+        text = annotatedString,
+        style = MaterialTheme.typography.bodyLarge,
+        color = colorSelector(),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable

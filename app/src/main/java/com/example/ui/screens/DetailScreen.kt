@@ -79,6 +79,10 @@ fun DetailScreen(
         }
         if (post != null) {
             viewModel.loadCommentsForPost(post)
+            val isVideo = post.fileExt == "mp4" || post.fileExt == "webm" || post.fileUrl.endsWith(".mp4") || post.fileUrl.endsWith(".webm")
+            if (isVideo) {
+                viewModel.addToWatchHistory(post)
+            }
         }
     }
 
@@ -152,6 +156,7 @@ fun DetailScreen(
                             seekToTriggerMs = seekToTriggerMs,
                             onSeekConsumed = { seekToTriggerMs = null },
                             onPositionChanged = { viewModel.updatePlaybackPosition(it) },
+                            onDurationChanged = { viewModel.updateVideoDuration(it) },
                             timelineSegments = parsedTimeline,
                             modifier = Modifier.fillMaxWidth()
                         )

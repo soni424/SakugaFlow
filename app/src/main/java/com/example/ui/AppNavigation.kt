@@ -205,7 +205,8 @@ fun SakugaApp() {
                 composable("settings") {
                     SettingsScreen(
                         viewModel = viewModel,
-                        onNavigateBack = { navController.popBackStack() }
+                        onNavigateBack = { navController.popBackStack() },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
                     )
                 }
                 composable("explore") {

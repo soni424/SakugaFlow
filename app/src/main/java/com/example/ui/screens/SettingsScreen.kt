@@ -1,25 +1,41 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.data.SakugaPost
+import androidx.compose.ui.platform.testTag
 import com.example.ui.SakugaViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SakugaViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onPostClick: (SakugaPost) -> Unit
 ) {
     val quality by viewModel.playbackQuality.collectAsState()
     val autoplay by viewModel.autoplay.collectAsState()
@@ -231,6 +247,158 @@ fun SettingsScreen(
                                         themeExpanded = false
                                     }
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- WATCH HISTORY SECTION ---
+            val watchedList by viewModel.watchedPosts.collectAsState()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("watch_history_section"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Watch History",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (watchedList.isNotEmpty()) {
+                    TextButton(
+                        onClick = { viewModel.clearWatchedHistory() },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.testTag("clear_history_button")
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Clear All Watch History", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Clear All")
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                if (watchedList.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp)
+                            .testTag("no_history_text"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No watched videos yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(16.dp)
+                            .testTag("watch_history_row"),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        watchedList.forEach { watched ->
+                            Box(
+                                modifier = Modifier
+                                    .width(130.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        val post = SakugaPost(
+                                            id = watched.id,
+                                            tags = watched.tags,
+                                            fileUrl = watched.fileUrl,
+                                            previewUrl = watched.previewUrl,
+                                            sampleUrl = watched.sampleUrl,
+                                            fileExt = watched.fileExt,
+                                            score = watched.score,
+                                            author = watched.author,
+                                            width = watched.width,
+                                            height = watched.height
+                                        )
+                                        onPostClick(post)
+                                    }
+                                    .testTag("watch_item_card_${watched.id}")
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(85.dp)
+                                    ) {
+                                        AsyncImage(
+                                            model = watched.previewUrl,
+                                            contentDescription = "Preview for ${watched.id}",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        // Play Icon Overlay
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayCircle,
+                                                contentDescription = "Play",
+                                                tint = Color.White.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+
+                                        // Tiny Close/Delete button to delete this history item
+                                        IconButton(
+                                            onClick = { viewModel.removeWatchedPost(watched.id) },
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                                .testTag("remove_watch_item_${watched.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove from history",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(modifier = Modifier.padding(6.dp)) {
+                                        val firstTag = remember(watched.tags) {
+                                            watched.tags.split(" ").firstOrNull { it.isNotEmpty() }?.replace("_", " ") ?: "Video"
+                                        }
+                                        Text(
+                                            text = "ID: ${watched.id}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = firstTag,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

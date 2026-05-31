@@ -16,7 +16,8 @@ class SakugaRepository(context: Context) {
         context.applicationContext,
         AppDatabase::class.java,
         "sakuga_database"
-    ).build()
+    ).fallbackToDestructiveMigration()
+        .build()
 
     private val postDao = database.postDao()
 
@@ -143,6 +144,33 @@ class SakugaRepository(context: Context) {
 
     suspend fun removePost(id: Int) {
         postDao.deletePostById(id)
+    }
+
+    val watchedPosts: Flow<List<WatchedPost>> = postDao.getAllWatchedPosts()
+
+    suspend fun addWatchedPost(post: SakugaPost) {
+        val watched = WatchedPost(
+            id = post.id,
+            tags = post.tags,
+            fileUrl = post.fileUrl,
+            previewUrl = post.previewUrl,
+            sampleUrl = post.sampleUrl,
+            fileExt = post.fileExt,
+            score = post.score,
+            author = post.author,
+            width = post.width,
+            height = post.height,
+            watchedTimestamp = System.currentTimeMillis()
+        )
+        postDao.insertWatchedPost(watched)
+    }
+
+    suspend fun removeWatchedPost(id: Int) {
+        postDao.deleteWatchedPostById(id)
+    }
+
+    suspend fun clearWatchedHistory() {
+        postDao.clearAllWatchedPosts()
     }
 
     suspend fun getComments(postId: Int): List<SakugaComment> {

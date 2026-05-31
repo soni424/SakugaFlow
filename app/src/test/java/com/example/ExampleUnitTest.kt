@@ -95,4 +95,53 @@ class ExampleUnitTest {
     assertEquals("yutaka_nakamura source:*solo*ka", mockUpdateTag(initialQuery, "source", "true"))
     assertEquals("yutaka_nakamura", mockUpdateTag("yutaka_nakamura source:*solo*ka", "source", null))
   }
+
+  @Test
+  fun testAliasMapAndCorrections() {
+    // Exact match corrections
+    val effectCorr = TagClassifier.getCorrectionForAlias("effect")
+    assertNotNull(effectCorr)
+    assertEquals("effect", effectCorr?.first)
+    assertEquals("effects", effectCorr?.second)
+
+    // Prefix matches
+    val jujutsCorr = TagClassifier.getCorrectionForAlias("jujuts")
+    assertNotNull(jujutsCorr)
+    assertEquals("jujutsu_kaisen_series", jujutsCorr?.second)
+
+    val nonexistentCorr = TagClassifier.getCorrectionForAlias("nonexistenttag")
+    assertNull(nonexistentCorr)
+  }
+
+  @Test
+  fun testEndKeywordTimestampParsing() {
+    val regex = """(\d+):(\d{2})(?:\.(\d+))?\s*(?::|to|till|until|-|–|~)?\s*\b(END)\b""".toRegex(RegexOption.IGNORE_CASE)
+    
+    val matches = listOf(
+      "0:30.1 - END Vincent",
+      "0:30.1 END Vincent",
+      "0:30.1: END: Vincent",
+      "0:30.1 to END Vincent",
+      "0:30 END Vincent"
+    )
+    
+    matches.forEach { line ->
+      val match = regex.find(line)
+      assertNotNull("Should match: $line", match)
+      val mins = match!!.groupValues[1]
+      val secs = match.groupValues[2]
+      val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
+      
+      assertEquals("0", mins)
+      assertEquals("30", secs)
+      if (line.contains("30.1")) {
+        assertEquals("1", subSec)
+      } else {
+        assertNull(subSec)
+      }
+      
+      // Check that "END" keyword itself is captured
+      assertTrue(match.groupValues[4].equals("END", ignoreCase = true))
+    }
+  }
 }

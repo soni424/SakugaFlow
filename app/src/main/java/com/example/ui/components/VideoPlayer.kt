@@ -56,6 +56,7 @@ fun VideoPlayer(
     seekToTriggerMs: Long?,
     onSeekConsumed: () -> Unit,
     onPositionChanged: (Long) -> Unit,
+    onDurationChanged: (Long) -> Unit = {},
     timelineSegments: List<TimelineSegment> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -126,6 +127,9 @@ fun VideoPlayer(
                 durationMs = exoPlayer.duration.coerceAtLeast(0L)
                 isPlaying = exoPlayer.isPlaying
                 onPositionChanged(currentPositionMs)
+                if (durationMs > 0L) {
+                    onDurationChanged(durationMs)
+                }
                 delay(100)
             }
         } catch (e: Exception) {
