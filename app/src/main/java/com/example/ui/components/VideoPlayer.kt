@@ -32,6 +32,23 @@ import com.example.R
 import com.example.ui.TimelineSegment
 import androidx.compose.ui.text.style.TextOverflow
 
+enum class OverlayPosition(val label: String, val alignment: Alignment) {
+    TOP_LEFT("Top-Left", Alignment.TopStart),
+    TOP_CENTER("Top-Center", Alignment.TopCenter),
+    TOP_RIGHT("Top-Right", Alignment.TopEnd),
+    CENTER_LEFT("Center-Left", Alignment.CenterStart),
+    CENTER_RIGHT("Center-Right", Alignment.CenterEnd),
+    BOTTOM_LEFT("Bottom-Left", Alignment.BottomStart),
+    BOTTOM_CENTER("Bottom-Center", Alignment.BottomCenter),
+    BOTTOM_RIGHT("Bottom-Right", Alignment.BottomEnd)
+}
+
+fun formatOverlayText(text: String): String {
+    val words = text.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+    val wordLimited = if (words.size > 5) words.take(5).joinToString(" ") + "..." else text
+    return if (wordLimited.length > 30) wordLimited.take(27) + "..." else wordLimited
+}
+
 @Composable
 fun VideoPlayer(
     videoUrl: String,
@@ -54,6 +71,8 @@ fun VideoPlayer(
     var isFlipped by remember { mutableStateOf(false) }
     var selectedFps by remember { mutableStateOf(24.0) }
     var showExtendedSettings by remember { mutableStateOf(false) }
+    var showArtistOverlay by remember { mutableStateOf(false) }
+    var overlayPosition by remember { mutableStateOf(OverlayPosition.TOP_RIGHT) }
 
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
@@ -176,6 +195,25 @@ fun VideoPlayer(
                             contentDescription = "Paused",
                             tint = Color.White.copy(alpha = 0.8f),
                             modifier = Modifier.size(64.dp)
+                        )
+                    }
+                }
+
+                // Floating Artist Overlay
+                if (showArtistOverlay && currentArtist.isNotEmpty()) {
+                    val formatted = formatOverlayText(currentArtist)
+                    Box(
+                        modifier = Modifier
+                            .align(overlayPosition.alignment)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = formatted,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -434,11 +472,95 @@ fun VideoPlayer(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "Advanced Frame Settings",
+                            "Advanced Settings",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
+
+                        // "Show Artist Overlay" toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Show Artist Overlay", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Switch(
+                                checked = showArtistOverlay,
+                                onCheckedChange = { showArtistOverlay = it }
+                            )
+                        }
+
+                        // Grid position selector for overlay
+                        if (showArtistOverlay) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Artist Overlay Position", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .padding(6.dp)
+                                    ) {
+                                        val grid = listOf(
+                                            listOf(OverlayPosition.TOP_LEFT, OverlayPosition.TOP_CENTER, OverlayPosition.TOP_RIGHT),
+                                            listOf(OverlayPosition.CENTER_LEFT, null, OverlayPosition.CENTER_RIGHT),
+                                            listOf(OverlayPosition.BOTTOM_LEFT, OverlayPosition.BOTTOM_CENTER, OverlayPosition.BOTTOM_RIGHT)
+                                        )
+                                        grid.forEach { row ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                row.forEach { pos ->
+                                                    if (pos != null) {
+                                                        val isSelected = overlayPosition == pos
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(28.dp)
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(
+                                                                    if (isSelected) MaterialTheme.colorScheme.primary 
+                                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                                                                )
+                                                                .clickable { overlayPosition = pos },
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(6.dp)
+                                                                    .background(
+                                                                        if (isSelected) MaterialTheme.colorScheme.onPrimary 
+                                                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                                        CircleShape
+                                                                    )
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier.size(28.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(6.dp)
+                                                                    .background(Color.Transparent, CircleShape)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = overlayPosition.label,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
 
                         // 1. Video speed slider
                         Column {

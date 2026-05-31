@@ -74,6 +74,18 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
     private val _autocompleteSuggestions = MutableStateFlow<List<com.example.data.SakugaTag>>(emptyList())
     val autocompleteSuggestions = _autocompleteSuggestions.asStateFlow()
 
+    private val _popularTags = MutableStateFlow<List<com.example.data.SakugaTag>>(
+        listOf(
+            com.example.data.SakugaTag(id = 1, name = "yutaka_nakamura", count = 9999, type = 1),
+            com.example.data.SakugaTag(id = 2, name = "effects", count = 8888, type = 0),
+            com.example.data.SakugaTag(id = 3, name = "action", count = 7777, type = 0),
+            com.example.data.SakugaTag(id = 4, name = "smear", count = 6666, type = 0),
+            com.example.data.SakugaTag(id = 5, name = "background_animation", count = 5555, type = 0),
+            com.example.data.SakugaTag(id = 6, name = "character_acting", count = 4444, type = 0)
+        )
+    )
+    val popularTags = _popularTags.asStateFlow()
+
     private var autocompleteJob: kotlinx.coroutines.Job? = null
 
     // 2. Settings states
@@ -101,6 +113,10 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         loadRecentSearches()
         viewModelScope.launch {
             repository.fetchPopularTags(500)
+            val fetched = repository.getPopularTags(15)
+            if (fetched.isNotEmpty()) {
+                _popularTags.value = fetched
+            }
         }
         search("")
     }

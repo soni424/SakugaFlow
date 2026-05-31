@@ -83,42 +83,65 @@ fun HomeScreen(
         var isSearchFocused by remember { mutableStateOf(false) }
         val recentSearches by viewModel.recentSearches.collectAsState()
         val suggestions by viewModel.autocompleteSuggestions.collectAsState()
+        val popularTags by viewModel.popularTags.collectAsState()
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { viewModel.updateSearchQuery(it) },
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .onFocusChanged { isSearchFocused = it.isFocused },
-            placeholder = { Text("Search tags (e.g. effects yutaka_nakamura)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            trailingIcon = { 
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { 
-                        viewModel.updateSearchQuery("")
-                        viewModel.search("") 
-                        keyboardController?.hide()
-                    }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } 
-            },
-            singleLine = true,
-            shape = CircleShape,
-            colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedBorderColor = Color.Transparent,
-                focusedBorderColor = Color.Transparent,
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { 
-                viewModel.search(searchQuery.trim())
-                isSearchFocused = false
-                keyboardController?.hide()
-            })
-        )
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { viewModel.updateSearchQuery(it) },
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { isSearchFocused = it.isFocused },
+                placeholder = { Text("Search", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                trailingIcon = { 
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { 
+                            viewModel.updateSearchQuery("")
+                            viewModel.search("") 
+                            keyboardController?.hide()
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } 
+                },
+                singleLine = true,
+                shape = CircleShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent,
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { 
+                    viewModel.search(searchQuery.trim())
+                    isSearchFocused = false
+                    keyboardController?.hide()
+                })
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            IconButton(
+                onClick = { expandedFilters = !expandedFilters },
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = if (expandedFilters) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FilterList,
+                    contentDescription = "Toggle Filters",
+                    tint = if (expandedFilters) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -128,30 +151,44 @@ fun HomeScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
+                // Shifted horizontal scrollable tag bar directly beneath the newly condensed search/filter bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "Sakuga Extended Search",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    IconButton(
-                        onClick = { expandedFilters = !expandedFilters },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = if (expandedFilters) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Toggle Filters",
-                            tint = if (expandedFilters) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                        )
+                    popularTags.forEach { tag ->
+                        val isSelected = searchQuery.lowercase().contains(tag.name.lowercase())
+                        val bgColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                        val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        
+                        val displayName = remember(tag.name) {
+                            tag.name.split('_')
+                                .joinToString(" ") { word ->
+                                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                                }
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(bgColor)
+                                .clickable { 
+                                    val newQuery = if (searchQuery.trim().isEmpty()) tag.name else "$searchQuery ${tag.name}"
+                                    viewModel.updateSearchQuery(newQuery)
+                                    viewModel.search(newQuery) 
+                                }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = displayName,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
 
@@ -305,45 +342,6 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val tags = listOf(
-                        Triple("Yutaka Nakamura", "yutaka_nakamura", MaterialTheme.colorScheme.surfaceVariant),
-                        Triple("Effects", "effects", MaterialTheme.colorScheme.primary),
-                        Triple("Action", "action", MaterialTheme.colorScheme.surfaceVariant),
-                        Triple("Smear", "smear", MaterialTheme.colorScheme.surfaceVariant),
-                        Triple("Background Animation", "background_animation", MaterialTheme.colorScheme.surfaceVariant),
-                        Triple("Character Acting", "character_acting", MaterialTheme.colorScheme.surfaceVariant)
-                    )
-                    tags.forEach { (displayName, tagValue, bgColor) ->
-                        val textColor = if (bgColor == MaterialTheme.colorScheme.primary) 
-                            MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(bgColor)
-                                .clickable { 
-                                    val newQuery = if (searchQuery.isEmpty()) tagValue else "$searchQuery $tagValue"
-                                    viewModel.updateSearchQuery(newQuery)
-                                    viewModel.search(newQuery) 
-                                }
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = displayName,
-                                color = textColor,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
                         }
                     }
                 }
