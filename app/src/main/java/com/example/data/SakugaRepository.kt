@@ -81,6 +81,34 @@ class SakugaRepository(context: Context) {
         }
     }
 
+    suspend fun getAutocompleteTags(query: String): List<SakugaTag> {
+        val sanitized = query.lowercase().trim()
+        if (sanitized.isEmpty()) return emptyList()
+
+        // Seek local matches from tag cache
+        val localMatches = tagCache.values
+            .filter { it.name.lowercase().contains(sanitized) }
+            .sortedWith(compareBy<SakugaTag> { !it.name.lowercase().startsWith(sanitized) }.thenBy { it.name.length })
+            .take(15)
+
+        if (localMatches.size >= 12) return localMatches
+
+        // If local matches are not enough, query from api with a wildcard query
+        return try {
+            val apiMatches = api.getTags(name = "*$sanitized*", limit = 20)
+            apiMatches.forEach { tag ->
+                tagCache[tag.name.lowercase().trim()] = tag
+            }
+            (localMatches + apiMatches)
+                .distinctBy { it.id }
+                .sortedWith(compareBy<SakugaTag> { !it.name.lowercase().startsWith(sanitized) }.thenBy { it.name.length })
+                .take(15)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            localMatches
+        }
+    }
+
     fun isPostSaved(id: Int): Flow<Boolean> = postDao.isPostSaved(id)
 
     suspend fun savePost(post: SakugaPost) {

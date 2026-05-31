@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -78,12 +80,17 @@ fun HomeScreen(
     ) {
         // Search Bar Area
         val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        var isSearchFocused by remember { mutableStateOf(false) }
+        val recentSearches by viewModel.recentSearches.collectAsState()
+        val suggestions by viewModel.autocompleteSuggestions.collectAsState()
+
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.updateSearchQuery(it) },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .onFocusChanged { isSearchFocused = it.isFocused },
             placeholder = { Text("Search tags (e.g. effects yutaka_nakamura)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
             trailingIcon = { 
@@ -108,263 +115,425 @@ fun HomeScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { 
                 viewModel.search(searchQuery.trim())
+                isSearchFocused = false
                 keyboardController?.hide()
             })
         )
 
-        // Filters and Title Row
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .weight(1f)
         ) {
-            Text(
-                text = "Sakuga Extended Search",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            IconButton(
-                onClick = { expandedFilters = !expandedFilters },
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = if (expandedFilters) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FilterList,
-                    contentDescription = "Toggle Filters",
-                    tint = if (expandedFilters) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-
-        // Expanded Extended Search Panel
-        if (expandedFilters) {
-            val sortOrder by viewModel.sortOrder.collectAsState()
-            val ratingFilter by viewModel.ratingFilter.collectAsState()
-            val postsLimit by viewModel.postsLimit.collectAsState()
-            val isSoloKa by viewModel.isSoloKa.collectAsState()
-
-            ElevatedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            FilterDropdown(
-                                label = "Sort by",
-                                selectedValue = sortOrder,
-                                options = sortOptions,
-                                onValueChange = { viewModel.updateSortOrder(it) }
-                            )
-                        }
-                        Box(modifier = Modifier.weight(1f)) {
-                            FilterDropdown(
-                                label = "Rating",
-                                selectedValue = ratingFilter,
-                                options = ratingOptions,
-                                onValueChange = { viewModel.updateRatingFilter(it) }
-                            )
-                        }
-                    }
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = postsLimit,
-                            onValueChange = { viewModel.updatePostsLimit(it) },
-                            label = { Text("Posts Limit", fontSize = 11.sp) },
-                            modifier = Modifier.weight(1.1f),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedContainerColor = Color.Transparent
-                            ),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    viewModel.commitPostsLimitSearch()
-                                    keyboardController?.hide()
-                                }
-                            ),
-                            trailingIcon = {
-                                IconButton(
-                                    modifier = Modifier.size(36.dp),
-                                    onClick = { 
-                                        viewModel.commitPostsLimitSearch()
-                                        keyboardController?.hide()
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowForward, 
-                                        contentDescription = "Apply limit",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            textStyle = TextStyle(fontSize = 13.sp)
-                        )
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .weight(0.9f)
-                                .height(56.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                                .clickable { viewModel.toggleSoloKa(!isSoloKa) }
-                                .padding(horizontal = 8.dp)
-                        ) {
-                            Checkbox(
-                                checked = isSoloKa,
-                                onCheckedChange = { viewModel.toggleSoloKa(it) }
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                "Solo KA", 
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    // Cheatsheet guide shortcuts
-                    Text(
-                        text = "Booru Cheat Sheet Shortcuts",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val helperChips = listOf(
-                            "Score >= 10" to "score:>=10",
-                            "Exclude Sibling Clips" to "parent:none",
-                            "Only HD (1080p)" to "width:>=1920",
-                            "Web Animation" to "web_animation",
-                            "Remove Sound" to "-sound",
-                            "Yutapon Cubes" to "yutapon_cubes"
-                        )
-                        helperChips.forEach { (label, searchSuffix) ->
-                            AssistChip(
-                                onClick = {
-                                    val currentQuery = searchQuery.trim()
-                                    val newQuery = if (currentQuery.contains(searchSuffix)) {
-                                        currentQuery 
-                                    } else if (currentQuery.isEmpty()) {
-                                        searchSuffix
-                                    } else {
-                                        "$currentQuery $searchSuffix"
-                                    }
-                                    viewModel.updateSearchQuery(newQuery)
-                                    viewModel.search(newQuery)
-                                },
-                                label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Quick Tags Suggester Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val tags = listOf(
-                Triple("Yutaka Nakamura", "yutaka_nakamura", MaterialTheme.colorScheme.surfaceVariant),
-                Triple("Effects", "effects", MaterialTheme.colorScheme.primary),
-                Triple("Action", "action", MaterialTheme.colorScheme.surfaceVariant),
-                Triple("Smear", "smear", MaterialTheme.colorScheme.surfaceVariant),
-                Triple("Background Animation", "background_animation", MaterialTheme.colorScheme.surfaceVariant),
-                Triple("Character Acting", "character_acting", MaterialTheme.colorScheme.surfaceVariant)
-            )
-            tags.forEach { (displayName, tagValue, bgColor) ->
-                val textColor = if (bgColor == MaterialTheme.colorScheme.primary) 
-                    MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(bgColor)
-                        .clickable { 
-                            val newQuery = if (searchQuery.isEmpty()) tagValue else "$searchQuery $tagValue"
-                            viewModel.updateSearchQuery(newQuery)
-                            viewModel.search(newQuery) 
-                        }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = displayName,
-                        color = textColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-
-        // Main Gallery
-        if (isLoading && posts.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(posts) { post ->
-                    PostItem(post = post, viewModel = viewModel, onClick = { onPostClick(post) })
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Sakuga Extended Search",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(
+                        onClick = { expandedFilters = !expandedFilters },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = if (expandedFilters) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Toggle Filters",
+                            tint = if (expandedFilters) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
-                if (posts.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        LaunchedEffect(posts.size) {
-                            viewModel.loadMore()
-                        }
-                        if (isLoading) {
-                            Box(
+
+                if (expandedFilters) {
+                    val sortOrder by viewModel.sortOrder.collectAsState()
+                    val ratingFilter by viewModel.ratingFilter.collectAsState()
+                    val postsLimit by viewModel.postsLimit.collectAsState()
+                    val isSoloKa by viewModel.isSoloKa.collectAsState()
+
+                    ElevatedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    FilterDropdown(
+                                        label = "Sort by",
+                                        selectedValue = sortOrder,
+                                        options = sortOptions,
+                                        onValueChange = { viewModel.updateSortOrder(it) }
+                                    )
+                                }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    FilterDropdown(
+                                        label = "Rating",
+                                        selectedValue = ratingFilter,
+                                        options = ratingOptions,
+                                        onValueChange = { viewModel.updateRatingFilter(it) }
+                                    )
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = postsLimit,
+                                    onValueChange = { viewModel.updatePostsLimit(it) },
+                                    label = { Text("Posts Limit", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1.1f),
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedContainerColor = Color.Transparent
+                                    ),
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
+                                            viewModel.commitPostsLimitSearch()
+                                            keyboardController?.hide()
+                                        }
+                                    ),
+                                    trailingIcon = {
+                                        IconButton(
+                                            modifier = Modifier.size(36.dp),
+                                            onClick = { 
+                                                viewModel.commitPostsLimitSearch()
+                                                keyboardController?.hide()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowForward, 
+                                                contentDescription = "Apply limit",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    textStyle = TextStyle(fontSize = 13.sp)
+                                )
+                                
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .weight(0.9f)
+                                        .height(56.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                        .clickable { viewModel.toggleSoloKa(!isSoloKa) }
+                                        .padding(horizontal = 8.dp)
+                                ) {
+                                    Checkbox(
+                                        checked = isSoloKa,
+                                        onCheckedChange = { viewModel.toggleSoloKa(it) }
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        "Solo KA", 
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "Booru Cheat Sheet Shortcuts",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                CircularProgressIndicator()
+                                val helperChips = listOf(
+                                    "Score >= 10" to "score:>=10",
+                                    "Exclude Sibling Clips" to "parent:none",
+                                    "Only HD (1080p)" to "width:>=1920",
+                                    "Web Animation" to "web_animation",
+                                    "Remove Sound" to "-sound",
+                                    "Yutapon Cubes" to "yutapon_cubes"
+                                )
+                                helperChips.forEach { (label, searchSuffix) ->
+                                    AssistChip(
+                                        onClick = {
+                                            val currentQuery = searchQuery.trim()
+                                            val newQuery = if (currentQuery.contains(searchSuffix)) {
+                                                currentQuery 
+                                            } else if (currentQuery.isEmpty()) {
+                                                searchSuffix
+                                            } else {
+                                                "$currentQuery $searchSuffix"
+                                            }
+                                            viewModel.updateSearchQuery(newQuery)
+                                            viewModel.search(newQuery)
+                                        },
+                                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val tags = listOf(
+                        Triple("Yutaka Nakamura", "yutaka_nakamura", MaterialTheme.colorScheme.surfaceVariant),
+                        Triple("Effects", "effects", MaterialTheme.colorScheme.primary),
+                        Triple("Action", "action", MaterialTheme.colorScheme.surfaceVariant),
+                        Triple("Smear", "smear", MaterialTheme.colorScheme.surfaceVariant),
+                        Triple("Background Animation", "background_animation", MaterialTheme.colorScheme.surfaceVariant),
+                        Triple("Character Acting", "character_acting", MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                    tags.forEach { (displayName, tagValue, bgColor) ->
+                        val textColor = if (bgColor == MaterialTheme.colorScheme.primary) 
+                            MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(bgColor)
+                                .clickable { 
+                                    val newQuery = if (searchQuery.isEmpty()) tagValue else "$searchQuery $tagValue"
+                                    viewModel.updateSearchQuery(newQuery)
+                                    viewModel.search(newQuery) 
+                                }
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = displayName,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                if (isLoading && posts.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(posts) { post ->
+                            PostItem(post = post, viewModel = viewModel, onClick = { onPostClick(post) })
+                        }
+                        if (posts.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                LaunchedEffect(posts.size) {
+                                    viewModel.loadMore()
+                                }
+                                if (isLoading) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isSearchFocused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .clickable { isSearchFocused = false }
+                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .heightIn(max = 300.dp)
+                        .align(Alignment.TopCenter),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Recent Searches",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                if (recentSearches.isNotEmpty()) {
+                                    TextButton(onClick = { viewModel.clearSearchHistory() }) {
+                                        Text(
+                                            text = "Clear All",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (recentSearches.isEmpty()) {
+                                Text(
+                                    text = "No recent searches yet.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 12.dp)
+                                )
+                            } else {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    recentSearches.forEach { term ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.background)
+                                                .clickable {
+                                                    viewModel.updateSearchQuery(term)
+                                                    viewModel.search(term)
+                                                    isSearchFocused = false
+                                                    keyboardController?.hide()
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = term,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "Tag Predictions",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (suggestions.isEmpty()) {
+                                Text(
+                                    text = "No suggestions found.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 12.dp)
+                                )
+                            } else {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    suggestions.forEach { tag ->
+                                        val cat = com.example.data.SakugaTagCategory.fromId(tag.type)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    viewModel.updateSearchQuery(tag.name)
+                                                    viewModel.search(tag.name)
+                                                    isSearchFocused = false
+                                                    keyboardController?.hide()
+                                                }
+                                                .padding(vertical = 8.dp, horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Search,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text(
+                                                    text = tag.name,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Surface(
+                                                color = Color(cat.darkColorHex),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${tag.count} • ${cat.displayName}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.Black,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

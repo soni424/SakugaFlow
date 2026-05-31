@@ -111,19 +111,14 @@ fun DetailScreen(
                 Text("Post not found.", color = MaterialTheme.colorScheme.onBackground)
             }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(MaterialTheme.colorScheme.background)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                // Interactive Media Player Area (Mp4 vs Images)
+            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+            val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            
+            @Composable
+            fun MediaPlayerContent(modifier: Modifier = Modifier) {
                 val isVideo = post.fileExt == "mp4" || post.fileExt == "webm"
-                
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
+                    modifier = modifier
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
@@ -146,65 +141,57 @@ fun DetailScreen(
                         )
                     }
                 }
+            }
 
-                // Details & Tag Categorisation Content Panel
+            @Composable
+            fun DetailsContentPanel(modifier: Modifier = Modifier) {
                 Column(
-                    modifier = Modifier
+                    modifier = modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    
                     // 1. YouTube/Booru Style Commentary Timeline Section
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Commentary Timeline",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
-                                    Text(
-                                        text = "${parsedTimeline.size} entries",
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "Tapping a timeline timestamp jumps the video controller directly to that scene breakdown.",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (parsedTimeline.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            if (parsedTimeline.isEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    CircularProgressIndicator()
+                                    Text(
+                                        text = "Commentary Timeline",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Badge(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                                        Text(
+                                            text = "${parsedTimeline.size} entries",
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
-                            } else {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Tapping a timeline timestamp jumps the video controller directly to that scene breakdown.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                Spacer(modifier = Modifier.height(8.dp))
+
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     parsedTimeline.forEach { segment ->
                                         val startLabel = formatTime(segment.startMs)
@@ -266,6 +253,8 @@ fun DetailScreen(
                     }
 
                     // 1b. Real Video Comments Section
+                    val discussionComments by viewModel.discussionComments.collectAsState()
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -295,7 +284,7 @@ fun DetailScreen(
                                 }
                                 Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
                                     Text(
-                                        text = "${comments.size} comments",
+                                        text = "${discussionComments.size} comments",
                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -305,7 +294,7 @@ fun DetailScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            if (comments.isEmpty()) {
+                            if (discussionComments.isEmpty()) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -313,18 +302,14 @@ fun DetailScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "No comments posted for this clip yet.",
+                                        text = "No discussion comments posted for this clip yet.",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    comments.forEach { comment ->
-                                        // Match any timestamp inside the comment body and make it clickable!
-                                        val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
-                                        val match = timestampRegex.find(comment.body)
-
+                                    discussionComments.forEach { comment ->
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -355,30 +340,6 @@ fun DetailScreen(
                                                         fontSize = 12.sp,
                                                         color = MaterialTheme.colorScheme.primary
                                                     )
-                                                }
-                                                if (match != null) {
-                                                    val mins = match.groupValues[1]
-                                                    val secs = match.groupValues[2]
-                                                    val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
-                                                    val timestampMs = parseTimeToMs(mins, secs, subSec)
-                                                    
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(4.dp))
-                                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                                            .clickable {
-                                                                seekToTriggerMs = timestampMs
-                                                            }
-                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = match.value,
-                                                            color = MaterialTheme.colorScheme.primary,
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontFamily = FontFamily.Monospace
-                                                        )
-                                                    }
                                                 }
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
@@ -610,6 +571,43 @@ fun DetailScreen(
                             }
                         }
                     }
+                }
+            }
+
+            if (isLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MediaPlayerContent(modifier = Modifier.fillMaxWidth())
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        DetailsContentPanel()
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .background(MaterialTheme.colorScheme.background)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    MediaPlayerContent()
+                    DetailsContentPanel()
                 }
             }
         }

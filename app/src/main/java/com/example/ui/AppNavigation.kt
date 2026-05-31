@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +32,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ui.screens.DetailScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SavedScreen
+import com.example.ui.screens.OfflineScreen
+import com.example.ui.screens.SettingsScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,119 +46,162 @@ fun SakugaApp() {
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
 
-    val isTopLevelRoute = currentRoute == "home" || currentRoute == "saved"
+    val isTopLevelRoute = currentRoute == "home" || currentRoute == "saved" || currentRoute == "offline" || currentRoute == "settings"
 
-    Scaffold(
-        topBar = {
-            if (isTopLevelRoute) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            "SakugaFlow",
-                            fontWeight = FontWeight.Medium
+    // Collect theme setting dynamically from viewModel
+    val themeState by viewModel.themeMode.collectAsState()
+    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val useDarkTheme = when (themeState) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemDark
+    }
+
+    com.example.ui.theme.MyApplicationTheme(darkTheme = useDarkTheme) {
+        Scaffold(
+            topBar = {
+                if (isTopLevelRoute) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                "SakugaFlow",
+                                fontWeight = FontWeight.Medium
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { /* Home redirect */ }) {
+                                Icon(
+                                    imageVector = Icons.Default.MotionPhotosOn,
+                                    contentDescription = "Logo",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                navController.navigate("offline") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDownload,
+                                    contentDescription = "Downloads"
+                                )
+                            }
+                            IconButton(onClick = {
+                                navController.navigate("settings") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background,
+                            scrolledContainerColor = MaterialTheme.colorScheme.background
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { /* TODO */ }) {
-                            Icon(
-                                imageVector = Icons.Default.MotionPhotosOn,
-                                contentDescription = "Logo",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { /* TODO */ }) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = "Downloads"
-                            )
-                        }
-                        IconButton(onClick = { /* TODO */ }) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Account"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        scrolledContainerColor = MaterialTheme.colorScheme.background
-                    )
-                )
-            }
-        },
-        bottomBar = {
-            if (isTopLevelRoute) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                ) {
-                    NavigationBarItem(
-                        selected = currentRoute == "home",
-                        onClick = {
-                            navController.navigate("home") {
-                                popUpTo("home") { inclusive = false }
-                                launchSingleTop = true
-                            }
-                        },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Feed") },
-                        label = { Text("Feed") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == "saved",
-                        onClick = {
-                            navController.navigate("saved") {
-                                popUpTo("home")
-                                launchSingleTop = true
-                            }
-                        },
-                        icon = { Icon(Icons.Default.Bookmark, contentDescription = "Saved") },
-                        label = { Text("Saved") }
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { /* TODO: Offline screen */ },
-                        icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Offline") },
-                        label = { Text("Offline") }
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = { /* TODO: Settings screen */ },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings") }
                     )
                 }
+            },
+            bottomBar = {
+                if (isTopLevelRoute) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ) {
+                        NavigationBarItem(
+                            selected = currentRoute == "home",
+                            onClick = {
+                                navController.navigate("home") {
+                                    popUpTo("home") { inclusive = false }
+                                    launchSingleTop = true
+                                }
+                            },
+                            icon = { Icon(Icons.Default.Home, contentDescription = "Feed") },
+                            label = { Text("Feed") }
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "saved",
+                            onClick = {
+                                navController.navigate("saved") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            },
+                            icon = { Icon(Icons.Default.Bookmark, contentDescription = "Saved") },
+                            label = { Text("Saved") }
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "offline",
+                            onClick = {
+                                navController.navigate("offline") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            },
+                            icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Offline") },
+                            label = { Text("Offline") }
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "settings",
+                            onClick = {
+                                navController.navigate("settings") {
+                                    popUpTo("home")
+                                    launchSingleTop = true
+                                }
+                            },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                            label = { Text("Settings") }
+                        )
+                    }
+                }
             }
-        }
-    ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(padding)
-        ) {
-            composable("home") {
-                HomeScreen(
-                    viewModel = viewModel,
-                    onNavigateToSaved = { navController.navigate("saved") },
-                    onPostClick = { post -> navController.navigate("detail/${post.id}") }
-                )
-            }
-            composable("saved") {
-                SavedScreen(
-                    viewModel = viewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onPostClick = { post -> navController.navigate("detail/${post.id}") }
-                )
-            }
-            composable("detail/{postId}") { backStackEntry ->
-                val postId = backStackEntry.arguments?.getString("postId")?.toIntOrNull()
-                if (postId != null) {
-                    DetailScreen(
-                        postId = postId,
+        ) { padding ->
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.padding(padding)
+            ) {
+                composable("home") {
+                    HomeScreen(
+                        viewModel = viewModel,
+                        onNavigateToSaved = { navController.navigate("saved") },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
+                    )
+                }
+                composable("saved") {
+                    SavedScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
+                    )
+                }
+                composable("offline") {
+                    OfflineScreen(
+                        viewModel = viewModel,
+                        onPostClick = { post -> navController.navigate("detail/${post.id}") }
+                    )
+                }
+                composable("settings") {
+                    SettingsScreen(
                         viewModel = viewModel,
                         onNavigateBack = { navController.popBackStack() }
                     )
+                }
+                composable("detail/{postId}") { backStackEntry ->
+                    val postId = backStackEntry.arguments?.getString("postId")?.toIntOrNull()
+                    if (postId != null) {
+                        DetailScreen(
+                            postId = postId,
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
                 }
             }
         }
