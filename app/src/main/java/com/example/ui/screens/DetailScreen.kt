@@ -57,6 +57,7 @@ fun DetailScreen(
     val currentArtist by viewModel.currentArtist.collectAsState()
     val parsedTimeline by viewModel.parsedTimeline.collectAsState()
     val comments by viewModel.comments.collectAsState()
+    val tagInfoMap by viewModel.tagInfoMap.collectAsState()
     var seekToTriggerMs by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(tagsList, post) {
@@ -356,7 +357,7 @@ fun DetailScreen(
                     }
 
                     // 2. Statistics Card panel echoing the custom screenshot styling!
-                    val copyrightTags = remember(tagsList, viewModel.tagInfoMap.collectAsState().value) {
+                    val copyrightTags = remember(tagsList, tagInfoMap) {
                         tagsList.filter { tag ->
                             viewModel.getTagCategoryAndInfo(tag).first == SakugaTagCategory.COPYRIGHT
                         }.map { it.replace("_", " ").split(" ").joinToString(" ") { it.replaceFirstChar { it.uppercase() } } }
@@ -471,7 +472,7 @@ fun DetailScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
 
-                    val groupedTags = remember(tagsList, viewModel.tagInfoMap.collectAsState().value) {
+                    val groupedTags = remember(tagsList, tagInfoMap) {
                         tagsList.groupBy { tag ->
                             viewModel.getTagCategoryAndInfo(tag).first
                         }
@@ -528,8 +529,7 @@ fun DetailScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         tagsForSec.forEach { tag ->
-                                            val tagInfoMapState by viewModel.tagInfoMap.collectAsState()
-                                            val infoObj = tagInfoMapState[tag.lowercase().trim()]
+                                            val infoObj = tagInfoMap[tag.lowercase().trim()]
                                             
                                             Box(
                                                 modifier = Modifier
