@@ -83,6 +83,7 @@ fun HomeScreen(
     ) {
         // Search Bar Area
         val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
         var isSearchFocused by remember { mutableStateOf(false) }
         val recentSearches by viewModel.recentSearches.collectAsState()
         val suggestions by viewModel.autocompleteSuggestions.collectAsState()
@@ -112,6 +113,7 @@ fun HomeScreen(
                                 viewModel.clearSelectedTags()
                                 viewModel.search("") 
                                 keyboardController?.hide()
+                                focusManager.clearFocus()
                             },
                             modifier = Modifier.testTag("clear_search_button")
                         ) {
@@ -133,7 +135,8 @@ fun HomeScreen(
                     if (q.isNotEmpty()) {
                         val words = q.split("\\s+".toRegex()).filter { it.isNotEmpty() }
                         val tags = words.filter { !it.contains(":") && !it.contains("*") }
-                        tags.forEach { tag ->
+                        val coalescedTags = com.example.data.TagClassifier.coalesceSearchWords(tags)
+                        coalescedTags.forEach { tag ->
                             viewModel.addSelectedTag(tag)
                         }
                         val filters = words.filter { it.contains(":") || it.contains("*") }
@@ -141,6 +144,7 @@ fun HomeScreen(
                     }
                     isSearchFocused = false
                     keyboardController?.hide()
+                    focusManager.clearFocus()
                 })
             )
 
@@ -480,7 +484,10 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.4f))
-                        .clickable { isSearchFocused = false }
+                        .clickable { 
+                            isSearchFocused = false 
+                            focusManager.clearFocus()
+                        }
                 )
                 Surface(
                     modifier = Modifier
@@ -544,6 +551,7 @@ fun HomeScreen(
                                                     viewModel.search(term)
                                                     isSearchFocused = false
                                                     keyboardController?.hide()
+                                                    focusManager.clearFocus()
                                                 }
                                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                                         ) {
@@ -589,6 +597,7 @@ fun HomeScreen(
                                                     viewModel.addSuggestionToQuery(target)
                                                     isSearchFocused = false
                                                     keyboardController?.hide()
+                                                    focusManager.clearFocus()
                                                 }
                                                 .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
                                                 .padding(vertical = 10.dp, horizontal = 12.dp)
@@ -648,6 +657,7 @@ fun HomeScreen(
                                                     viewModel.addSuggestionToQuery(tag.name)
                                                     isSearchFocused = false
                                                     keyboardController?.hide()
+                                                    focusManager.clearFocus()
                                                 }
                                                 .padding(vertical = 8.dp, horizontal = 12.dp)
                                                 .testTag("suggestion_row_${tag.name}"),

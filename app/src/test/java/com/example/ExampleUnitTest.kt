@@ -144,4 +144,104 @@ class ExampleUnitTest {
       assertTrue(match.groupValues[4].equals("END", ignoreCase = true))
     }
   }
+
+  @Test
+  fun testAutocompleteBaseExtraction() {
+    fun getAutocompleteBase(query: String): String {
+      val lastWord = if (query.endsWith(" ")) "" else query.split("\\s+".toRegex()).lastOrNull() ?: ""
+      return if (!lastWord.contains(":") && !lastWord.contains("*")) lastWord else ""
+    }
+
+    assertEquals("yut", getAutocompleteBase("yut"))
+    assertEquals("", getAutocompleteBase("yut "))
+    assertEquals("", getAutocompleteBase("order:score "))
+    assertEquals("yut", getAutocompleteBase("order:score yut"))
+    assertEquals("", getAutocompleteBase("yut order:score"))
+    assertEquals("", getAutocompleteBase("yut *"))
+  }
+
+  @Test
+  fun testCoalesceSearchWords() {
+    val input1 = listOf("one", "piece")
+    val coalesced1 = com.example.data.TagClassifier.coalesceSearchWords(input1)
+    assertEquals(listOf("one_piece"), coalesced1)
+
+    val input2 = listOf("yutaka", "nakamura", "effects")
+    val coalesced2 = com.example.data.TagClassifier.coalesceSearchWords(input2)
+    assertEquals(listOf("yutaka_nakamura", "effects"), coalesced2)
+
+    val input3 = listOf("lucy", "cyberpunk", "one", "punch", "man")
+    val coalesced3 = com.example.data.TagClassifier.coalesceSearchWords(input3)
+    assertEquals(listOf("lucy", "cyberpunk", "one_punch_man"), coalesced3)
+  }
+
+  @Test
+  fun testStartKeywordDetectionRegex() {
+    val startRegex = """^(start|START)\s*(?:-|to|till|until)\s*(\d{1,2}:\d{2}(?:\.\d+)?)\s*(.*)$""".toRegex(RegexOption.IGNORE_CASE)
+    
+    val matches = listOf(
+      "start - 0:09.7 Masami Mori",
+      "START - 0:15.5 Vincent",
+      "start to 0:35.2 Sugita",
+      "START till 1:20.0 Okura"
+    )
+    
+    matches.forEach { line ->
+      val match = startRegex.find(line.trim())
+      assertNotNull("Should match start keyword range: $line", match)
+      
+      val startKw = match!!.groupValues[1]
+      val endTimestamp = match.groupValues[2]
+      val label = match.groupValues[3]
+      
+      assertTrue(startKw.equals("start", ignoreCase = true))
+      assertTrue(endTimestamp.isNotEmpty())
+      assertTrue(label.isNotEmpty())
+    }
+  }
+
+  @Test
+  fun testMultiLineCommentParsingSimulation() {
+    val commentBody = """
+      start - 0:37 sugita
+      0:37.1 - 1:28.8 shigetsugu
+      1:28.9 - END yoshiyama
+    """.trimIndent()
+    
+    val startRegex = """^(start|START)\s*(?:-|to|till|until)\s*(\d{1,2}:\d{2}(?:\.\d+)?)\s*(.*)$""".toRegex(RegexOption.IGNORE_CASE)
+    val endKeywordRegex = """(\d+):(\d{2})(?:\.(\d+))?\s*(?::|to|till|until|-|–|~)?\s*\b(END)\b""".toRegex(RegexOption.IGNORE_CASE)
+    val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
+    
+    val lines = commentBody.lines()
+    assertEquals(3, lines.size)
+    
+    // Line 1: start - 0:37 sugita
+    val line1 = lines[0].trim()
+    val matchStart1 = startRegex.find(line1)
+    assertNotNull(matchStart1)
+    assertEquals("start", matchStart1!!.groupValues[1].lowercase())
+    assertEquals("0:37", matchStart1.groupValues[2])
+    assertEquals("sugita", matchStart1.groupValues[3])
+    
+    // Line 2: 0:37.1 - 1:28.8 shigetsugu
+    val line2 = lines[1].trim()
+    val matchStart2 = startRegex.find(line2)
+    assertNull(matchStart2)
+    val matchEnd2 = endKeywordRegex.find(line2)
+    assertNull(matchEnd2)
+    val matchTime2 = timestampRegex.find(line2)
+    assertNotNull(matchTime2)
+    assertEquals("0", matchTime2!!.groupValues[1])
+    assertEquals("37", matchTime2.groupValues[2])
+    assertEquals("1", matchTime2.groupValues[3])
+    
+    // Line 3: 1:28.9 - END yoshiyama
+    val line3 = lines[2].trim()
+    val matchEnd3 = endKeywordRegex.find(line3)
+    assertNotNull(matchEnd3)
+    assertEquals("1", matchEnd3!!.groupValues[1])
+    assertEquals("28", matchEnd3.groupValues[2])
+    assertEquals("9", matchEnd3.groupValues[3])
+    assertEquals("END", matchEnd3.groupValues[4].uppercase())
+  }
 }

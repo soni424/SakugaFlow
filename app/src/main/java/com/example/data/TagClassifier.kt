@@ -169,4 +169,65 @@ object TagClassifier {
         }
         return null
     }
+
+    fun isKnownMultiWordTag(tag: String): Boolean {
+        val name = tag.lowercase().trim()
+        
+        // 1. Predefined set of common multi-word tags
+        if (artistTags.contains(name) && name.contains("_")) return true
+        if (copyrightTags.contains(name) && name.contains("_")) return true
+        if (metadataTags.contains(name) && name.contains("_")) return true
+        if (generalTags.contains(name) && name.contains("_")) return true
+        
+        // 2. Structurally known
+        if (name.endsWith("_series") || name.endsWith("_movie") || name.endsWith("_ova") || name.contains("_studioproduction")) {
+            return true
+        }
+        
+        // 3. Known multi-word generals
+        val knownGenerals = setOf(
+            "character_acting", "background_animation", "impact_frames", "slow_motion", "yutapon_cubes",
+            "liquid_effects", "fire_effects", "smoke_effects", "debris_effects", "water_effects", 
+            "lightning_effects", "wind_effects", "fabric_effects", "hair_effects", "beam_effects",
+            "explosion_effects", "light_effects", "spark_effects", "dust_effects"
+        )
+        if (knownGenerals.contains(name)) {
+            return true
+        }
+        
+        return false
+    }
+
+    fun coalesceSearchWords(rawWords: List<String>): List<String> {
+        val result = mutableListOf<String>()
+        var i = 0
+        val words = rawWords.map { it.trim() }.filter { it.isNotEmpty() }
+        
+        while (i < words.size) {
+            // Try 3 words lookahead
+            if (i + 2 < words.size) {
+                val potential3 = "${words[i]}_${words[i+1]}_${words[i+2]}"
+                if (isKnownMultiWordTag(potential3)) {
+                    result.add(potential3)
+                    i += 3
+                    continue
+                }
+            }
+            
+            // Try 2 words lookahead
+            if (i + 1 < words.size) {
+                val potential2 = "${words[i]}_${words[i+1]}"
+                if (isKnownMultiWordTag(potential2)) {
+                    result.add(potential2)
+                    i += 2
+                    continue
+                }
+            }
+            
+            // Default keep as-is
+            result.add(words[i])
+            i++
+        }
+        return result
+    }
 }
