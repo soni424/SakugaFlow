@@ -689,15 +689,15 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
                 val trimmed = line.trim()
                 val matchStart = startRegex.find(trimmed)
                 if (matchStart != null) {
-                    val timeStr = matchStart.groupValues[2]
-                    val labelAndAuthor = matchStart.groupValues[3]
+                    val timeStr = matchStart.groupValues.getOrNull(2) ?: ""
+                    val labelAndAuthor = matchStart.groupValues.getOrNull(3) ?: ""
                     
                     val timeMatch = timestampRegex.find(timeStr)
                     var endMs = 3000L
                     if (timeMatch != null) {
-                        val mins = timeMatch.groupValues[1]
-                        val secs = timeMatch.groupValues[2]
-                        val subSec = timeMatch.groupValues[3].takeIf { it.isNotEmpty() }
+                        val mins = timeMatch.groupValues.getOrNull(1) ?: "0"
+                        val secs = timeMatch.groupValues.getOrNull(2) ?: "0"
+                        val subSec = timeMatch.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
                         endMs = parseTimeToMs(mins, secs, subSec)
                     }
                     
@@ -718,9 +718,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
                 } else {
                     val matchEnd = endKeywordRegex.find(trimmed)
                     if (matchEnd != null) {
-                        val mins = matchEnd.groupValues[1]
-                        val secs = matchEnd.groupValues[2]
-                        val subSec = matchEnd.groupValues[3].takeIf { it.isNotEmpty() }
+                        val mins = matchEnd.groupValues.getOrNull(1) ?: "0"
+                        val secs = matchEnd.groupValues.getOrNull(2) ?: "0"
+                        val subSec = matchEnd.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
                         
                         val timestampMs = parseTimeToMs(mins, secs, subSec)
                         
@@ -746,9 +746,9 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
                     } else {
                         val match = timestampRegex.find(trimmed)
                         if (match != null) {
-                            val mins = match.groupValues[1]
-                            val secs = match.groupValues[2]
-                            val subSec = match.groupValues[3].takeIf { it.isNotEmpty() }
+                            val mins = match.groupValues.getOrNull(1) ?: "0"
+                            val secs = match.groupValues.getOrNull(2) ?: "0"
+                            val subSec = match.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
                             
                             val timestampMs = parseTimeToMs(mins, secs, subSec)
                             
