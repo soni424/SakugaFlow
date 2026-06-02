@@ -601,9 +601,59 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun hasTimestamp(body: String): Boolean {
-        val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
-        return timestampRegex.containsMatchIn(body)
+    fun isAnimatorCreditListComment(body: String): Boolean {
+        val lines = body.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size < 3) return false
+        
+        val rangeRegex = """^\s*(start|START|\d{1,2}:\d{2}(?:\.\d+)?)\s*(?:-|to|till|until)\s*(end|END|\d{1,2}:\d{2}(?:\.\d+)?)\s*:?\s*(.*)$""".toRegex(RegexOption.IGNORE_CASE)
+        val matchingLinesCount = lines.count { rangeRegex.matches(it) }
+        val percentage = matchingLinesCount.toDouble() / lines.size
+        
+        return matchingLinesCount >= 3 && percentage >= 0.60
+    }
+
+    private fun parseTimestampStringToMs(timeStr: String, defaultIfStart: Long = 0L, defaultIfEnd: Long = 0L): Long {
+        val clean = timeStr.trim().lowercase()
+        if (clean == "start") return defaultIfStart
+        if (clean == "end") return defaultIfEnd
+        
+        val colonIndex = clean.indexOf(':')
+        if (colonIndex == -1) {
+            val secsDouble = clean.toDoubleOrNull()
+            if (secsDouble != null) {
+                return (secsDouble * 1000).toLong()
+            }
+            return 0L
+        }
+        
+        val minsStr = clean.substring(0, colonIndex)
+        val afterColon = clean.substring(colonIndex + 1)
+        
+        val dotIndex = afterColon.indexOf('.')
+        val secsStr: String
+        val subSecsStr: String?
+        if (dotIndex != -1) {
+            secsStr = afterColon.substring(0, dotIndex)
+            subSecsStr = afterColon.substring(dotIndex + 1)
+        } else {
+            secsStr = afterColon
+            subSecsStr = null
+        }
+        
+        val mins = minsStr.toLongOrNull() ?: 0L
+        val secs = secsStr.toLongOrNull() ?: 0L
+        var totalMs = (mins * 60 + secs) * 1000L
+        
+        if (subSecsStr != null) {
+            val numStr = subSecsStr.take(3)
+            val mult = when (numStr.length) {
+                1 -> 100
+                2 -> 10
+                else -> 1
+            }
+            totalMs += (numStr.toIntOrNull() ?: 0) * mult
+        }
+        return totalMs
     }
 
     fun loadCommentsForPost(post: SakugaPost) {
@@ -615,14 +665,18 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         _videoDurationMs.value = 0L
         viewModelScope.launch {
             val rawComments = repository.getComments(post.id)
-            _comments.value = rawComments
             
-            val withTime = rawComments.filter { hasTimestamp(it.body) }
-            val withoutTime = rawComments.filter { !hasTimestamp(it.body) }
-            _timelineComments.value = withTime
-            _discussionComments.value = withoutTime
+            // Step 1: Strict Comment Classification
+            val animatorCreditComments = rawComments.filter { isAnimatorCreditListComment(it.body) }
+            val conversationalComments = rawComments.filter { !isAnimatorCreditListComment(it.body) }
             
-            val parsed = parseTimelineFromComments(withTime, post)
+            // Conversation/Discussion comments are placed strictly in the bottom "Discussion & Comments" section
+            _comments.value = conversationalComments
+            _timelineComments.value = animatorCreditComments
+            _discussionComments.value = conversationalComments
+            
+            // Only Animator Credit List Comments can populate the Commentary Timeline and update Current Artist
+            val parsed = parseTimelineFromComments(animatorCreditComments, post)
             _parsedTimeline.value = parsed
             
             if (parsed.isNotEmpty()) {
@@ -657,125 +711,47 @@ class SakugaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun parseTimeToMs(minsStr: String, secsStr: String, subSecsStr: String?): Long {
-        val mins = minsStr.toLongOrNull() ?: 0
-        val secs = secsStr.toLongOrNull() ?: 0
-        var totalMs = (mins * 60 + secs) * 1000
-        if (subSecsStr != null) {
-            val numStr = subSecsStr.take(3)
-            val mult = when (numStr.length) {
-                1 -> 100
-                2 -> 10
-                else -> 1
-            }
-            totalMs += (numStr.toIntOrNull() ?: 0) * mult
-        }
-        return totalMs
-    }
-
     private fun parseTimelineFromComments(
-        rawComments: List<SakugaComment>,
+        animatorComments: List<SakugaComment>,
         post: SakugaPost
     ): List<TimelineSegment> {
         val segments = mutableListOf<TimelineSegment>()
-        // Match timestamps like 0:35.8 or 1:11 or 0:57
-        val timestampRegex = """(\d+):(\d{2})(?:\.(\d+))?""".toRegex()
-        val endKeywordRegex = """(\d+):(\d{2})(?:\.(\d+))?\s*(?::|to|till|until|-|–|~)?\s*\b(END)\b""".toRegex(RegexOption.IGNORE_CASE)
-        val startRegex = """^(start|START)\s*(?:-|to|till|until)\s*(\d{1,2}:\d{2}(?:\.\d+)?)\s*(.*)$""".toRegex(RegexOption.IGNORE_CASE)
+        val rangeRegex = """^\s*(start|START|\d{1,2}:\d{2}(?:\.\d+)?)\s*(?:-|to|till|until)\s*(end|END|\d{1,2}:\d{2}(?:\.\d+)?)\s*:?\s*(.*)$""".toRegex(RegexOption.IGNORE_CASE)
 
-        rawComments.forEach { comment ->
+        animatorComments.forEach { comment ->
             val lines = comment.body.lines()
             lines.forEach { line ->
                 val trimmed = line.trim()
-                val matchStart = startRegex.find(trimmed)
-                if (matchStart != null) {
-                    val timeStr = matchStart.groupValues.getOrNull(2) ?: ""
-                    val labelAndAuthor = matchStart.groupValues.getOrNull(3) ?: ""
+                val match = rangeRegex.find(trimmed)
+                if (match != null) {
+                    val startStr = match.groupValues[1]
+                    val endStr = match.groupValues[2]
+                    val label = match.groupValues[3].trim()
                     
-                    val timeMatch = timestampRegex.find(timeStr)
-                    var endMs = 3000L
-                    if (timeMatch != null) {
-                        val mins = timeMatch.groupValues.getOrNull(1) ?: "0"
-                        val secs = timeMatch.groupValues.getOrNull(2) ?: "0"
-                        val subSec = timeMatch.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
-                        endMs = parseTimeToMs(mins, secs, subSec)
-                    }
+                    val duration = _videoDurationMs.value
+                    val startMs = parseTimestampStringToMs(startStr, defaultIfStart = 0L, defaultIfEnd = duration)
+                    val isEndMarker = endStr.equals("end", ignoreCase = true)
+                    val endMs = parseTimestampStringToMs(endStr, defaultIfStart = 0L, defaultIfEnd = if (duration > 0L) duration else (startMs + 5000L))
                     
-                    var cleanLine = labelAndAuthor.trim().trimStart(':', '-', '–', '~', ' ', ',')
+                    var cleanLine = label.trimStart(':', '-', '–', '~', ' ', ',')
                     if (cleanLine.isEmpty()) {
                         cleanLine = comment.body.take(65).replace("\n", " ") + "..."
                     }
                     
                     segments.add(
                         TimelineSegment(
-                            startMs = 0L,
+                            startMs = startMs,
                             endMs = endMs,
                             label = cleanLine,
                             author = comment.creator ?: "Anonymous",
-                            isEnd = false
+                            isEnd = isEndMarker
                         )
                     )
-                } else {
-                    val matchEnd = endKeywordRegex.find(trimmed)
-                    if (matchEnd != null) {
-                        val mins = matchEnd.groupValues.getOrNull(1) ?: "0"
-                        val secs = matchEnd.groupValues.getOrNull(2) ?: "0"
-                        val subSec = matchEnd.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
-                        
-                        val timestampMs = parseTimeToMs(mins, secs, subSec)
-                        
-                        // Simple clean up of label: remove the timestamp itself from the comment line
-                        var cleanLine = trimmed.replace("${mins}:${secs}" + (if (subSec != null) ".$subSec" else ""), "").trim()
-                        cleanLine = cleanLine.trimStart(':', '-', '–', '~', ' ', ',')
-                        if (cleanLine.isEmpty()) {
-                            cleanLine = comment.body.take(65).replace("\n", " ") + "..."
-                        }
-                        
-                        val duration = _videoDurationMs.value
-                        val finalEndMs = if (duration > 0L) duration else (timestampMs + 3000L)
-
-                        segments.add(
-                            TimelineSegment(
-                                startMs = timestampMs,
-                                endMs = finalEndMs,
-                                label = cleanLine,
-                                author = comment.creator ?: "Anonymous",
-                                isEnd = true
-                            )
-                        )
-                    } else {
-                        val match = timestampRegex.find(trimmed)
-                        if (match != null) {
-                            val mins = match.groupValues.getOrNull(1) ?: "0"
-                            val secs = match.groupValues.getOrNull(2) ?: "0"
-                            val subSec = match.groupValues.getOrNull(3)?.takeIf { it.isNotEmpty() }
-                            
-                            val timestampMs = parseTimeToMs(mins, secs, subSec)
-                            
-                            // Simple clean up of label: remove the timestamp itself from the comment line
-                            var cleanLine = trimmed.replace(match.value, "").trim()
-                            cleanLine = cleanLine.trimStart(':', '-', '–', '~', ' ', ',')
-                            if (cleanLine.isEmpty()) {
-                                cleanLine = comment.body.take(65).replace("\n", " ") + "..."
-                            }
-                            
-                            segments.add(
-                                TimelineSegment(
-                                    startMs = timestampMs,
-                                    endMs = timestampMs + 3000,
-                                    label = cleanLine,
-                                    author = comment.creator ?: "Anonymous",
-                                    isEnd = false
-                                )
-                            )
-                        }
-                    }
                 }
             }
         }
         
         segments.sortBy { it.startMs }
-        // Adjust endMs of each segment to the next segment's startMs to keep it neat (unless it's an end segment)
         for (i in 0 until segments.size - 1) {
             val current = segments[i]
             val next = segments[i + 1]
@@ -794,4 +770,8 @@ data class TimelineSegment(
     val label: String,
     val author: String = "",
     val isEnd: Boolean = false
-)
+) {
+    val startTimeSeconds: Float get() = startMs / 1000f
+    val endTimeSeconds: Float get() = endMs / 1000f
+    val artistName: String get() = label
+}

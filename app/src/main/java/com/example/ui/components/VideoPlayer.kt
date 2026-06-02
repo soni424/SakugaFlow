@@ -72,8 +72,9 @@ fun VideoPlayer(
     var isFlipped by remember { mutableStateOf(false) }
     var selectedFps by remember { mutableStateOf(24.0) }
     var showExtendedSettings by remember { mutableStateOf(false) }
-    var showArtistOverlay by remember { mutableStateOf(false) }
+    var showArtistOverlay by remember { mutableStateOf(true) }
     var overlayPosition by remember { mutableStateOf(OverlayPosition.TOP_RIGHT) }
+    var currentArtistName by remember { mutableStateOf("") }
 
     val exoPlayer = remember(videoUrl) {
         ExoPlayer.Builder(context).build().apply {
@@ -119,6 +120,10 @@ fun VideoPlayer(
         }
     }
 
+    val currentTimelineSegments by rememberUpdatedState(timelineSegments)
+    val currentOnPositionChanged by rememberUpdatedState(onPositionChanged)
+    val currentOnDurationChanged by rememberUpdatedState(onDurationChanged)
+
     // Update state continuously while video is playing
     LaunchedEffect(exoPlayer) {
         try {
@@ -126,10 +131,34 @@ fun VideoPlayer(
                 currentPositionMs = exoPlayer.currentPosition
                 durationMs = exoPlayer.duration.coerceAtLeast(0L)
                 isPlaying = exoPlayer.isPlaying
-                onPositionChanged(currentPositionMs)
+                currentOnPositionChanged(currentPositionMs)
                 if (durationMs > 0L) {
-                    onDurationChanged(durationMs)
+                    currentOnDurationChanged(durationMs)
                 }
+                
+                // 1. Convert current playback position to seconds
+                val currentPositionSeconds = currentPositionMs / 1000f
+                
+                // 2. Iterate and match position with active Commentary Timeline entries
+                val timelineEntries = currentTimelineSegments
+                val activeSegment = timelineEntries.find { entry ->
+                    currentPositionSeconds >= entry.startTimeSeconds && currentPositionSeconds < entry.endTimeSeconds
+                }
+                
+                // Edge Case / Last Segment fallback
+                val finalActiveSegment = if (activeSegment == null && timelineEntries.isNotEmpty() && currentPositionMs >= durationMs && durationMs > 0L) {
+                    timelineEntries.last()
+                } else {
+                    activeSegment
+                }
+                
+                // 3. Update active artist name state
+                if (finalActiveSegment != null) {
+                    currentArtistName = formatOverlayText(finalActiveSegment.artistName)
+                } else {
+                    currentArtistName = ""
+                }
+                
                 delay(100)
             }
         } catch (e: Exception) {
@@ -204,8 +233,7 @@ fun VideoPlayer(
                 }
 
                 // Floating Artist Overlay
-                if (showArtistOverlay && currentArtist.isNotEmpty()) {
-                    val formatted = formatOverlayText(currentArtist)
+                if (showArtistOverlay && currentArtistName.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .align(overlayPosition.alignment)
@@ -214,7 +242,7 @@ fun VideoPlayer(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = formatted,
+                            text = currentArtistName,
                             color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -437,7 +465,7 @@ fun VideoPlayer(
                 }
 
                 // Dynamic Current Artist and metadata row shown in player
-                if (currentArtist.isNotEmpty()) {
+                if (currentArtistName.isNotEmpty()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -457,7 +485,7 @@ fun VideoPlayer(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = currentArtist,
+                            text = currentArtistName,
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary

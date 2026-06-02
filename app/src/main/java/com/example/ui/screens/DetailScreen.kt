@@ -271,9 +271,21 @@ fun DetailScreen(
                                             }
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(
+                                                ClickableCommentText(
                                                     text = segment.label,
-                                                    fontWeight = FontWeight.Medium,
+                                                    onSakugaPostClick = onPostClick,
+                                                    onExternalUrlClick = { url ->
+                                                        try {
+                                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                                            context.startActivity(intent)
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "No app found to open this link.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    onTimestampClick = { timestampMs ->
+                                                        seekToTriggerMs = timestampMs
+                                                        Toast.makeText(context, "Seeking video to timestamp...", Toast.LENGTH_SHORT).show()
+                                                    },
                                                     fontSize = 13.sp,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
@@ -355,52 +367,70 @@ fun DetailScreen(
                                     )
                                 }
                             } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     commentsState.forEach { comment ->
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .background(
-                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                                    RoundedCornerShape(10.dp)
+                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f),
+                                                    RoundedCornerShape(12.dp)
                                                 )
                                                 .padding(12.dp),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                             verticalAlignment = Alignment.Top
                                         ) {
-                                            // Left portion: Creator & Time info (styled like screenshot)
-                                            Column(
-                                                modifier = Modifier.width(90.dp),
-                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            // Left Column: Circular user avatar / profile icon
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = comment.creator ?: "Anonymous",
+                                                    text = (comment.creator?.firstOrNull()?.uppercase() ?: "A").toString(),
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = formatCommentTimeAgo(comment.createdAt),
-                                                    fontSize = 10.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                    lineHeight = 12.sp
+                                                    fontSize = 13.sp,
+                                                    color = MaterialTheme.colorScheme.primary
                                                 )
                                             }
 
-                                            // Divider line for structural polish
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(1.dp)
-                                                    .height(40.dp)
-                                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                            )
-
-                                            // Right portion: Comment body & optional quote block (styled with CommentBodyView)
-                                            Box(
-                                                modifier = Modifier.weight(1f)
+                                            // Right Column: Vertical stack of (Metadata, CommentBody)
+                                            Column(
+                                                modifier = Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
+                                                // Top Row: user name/handle • relative upload time
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    val handle = comment.creator ?: "Anonymous"
+                                                    val formattedHandle = if (handle.startsWith("@")) handle else "@$handle"
+                                                    Text(
+                                                        text = formattedHandle,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "•",
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                    )
+                                                    Text(
+                                                        text = formatCommentTimeAgo(comment.createdAt),
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                        maxLines = 1
+                                                    )
+                                                }
+
+                                                // Bottom Row: Comment body (styled with CommentBodyView)
                                                 CommentBodyView(
                                                     body = comment.body,
                                                     onSakugaPostClick = onPostClick,
@@ -411,6 +441,10 @@ fun DetailScreen(
                                                         } catch (e: Exception) {
                                                             Toast.makeText(context, "No app found to open this link.", Toast.LENGTH_SHORT).show()
                                                         }
+                                                    },
+                                                    onTimestampClick = { timestampMs ->
+                                                        seekToTriggerMs = timestampMs
+                                                        Toast.makeText(context, "Seeking video to timestamp...", Toast.LENGTH_SHORT).show()
                                                     }
                                                 )
                                             }
@@ -781,19 +815,97 @@ fun MetadataCard(
     }
 }
 
+fun parseTimestampToMs(timestamp: String): Long? {
+    val clean = timestamp.trim().removeSurrounding("[", "]").removeSurrounding("(", ")")
+    val parts = clean.split(":")
+    return try {
+        when (parts.size) {
+            2 -> {
+                val mins = parts[0].toLong()
+                val secsStr = parts[1]
+                val dotIndex = secsStr.indexOf('.')
+                if (dotIndex != -1) {
+                    val secs = secsStr.substring(0, dotIndex).toLong()
+                    val subSecsStr = secsStr.substring(dotIndex + 1).take(3)
+                    val mult = when (subSecsStr.length) {
+                        1 -> 100
+                        2 -> 10
+                        else -> 1
+                    }
+                    val subMs = (subSecsStr.toIntOrNull() ?: 0) * mult
+                    (mins * 60 + secs) * 1000L + subMs
+                } else {
+                    val secs = secsStr.toLong()
+                    (mins * 60 + secs) * 1000L
+                }
+            }
+            3 -> {
+                val hrs = parts[0].toLong()
+                val mins = parts[1].toLong()
+                val secsStr = parts[2]
+                val dotIndex = secsStr.indexOf('.')
+                if (dotIndex != -1) {
+                    val secs = secsStr.substring(0, dotIndex).toLong()
+                    val subSecsStr = secsStr.substring(dotIndex + 1).take(3)
+                    val mult = when (subSecsStr.length) {
+                        1 -> 100
+                        2 -> 10
+                        else -> 1
+                    }
+                    val subMs = (subSecsStr.toIntOrNull() ?: 0) * mult
+                    (hrs * 3600 + mins * 60 + secs) * 1000L + subMs
+                } else {
+                    val secs = secsStr.toLong()
+                    (hrs * 3600 + mins * 60 + secs) * 1000L
+                }
+            }
+            else -> null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+enum class CommentMatchType { URL, TIMESTAMP }
+data class CommentMatchItem(val start: Int, val end: Int, val value: String, val type: CommentMatchType)
+
 @Composable
 fun ClickableCommentText(
     text: String,
     onSakugaPostClick: (Int) -> Unit,
     onExternalUrlClick: (String) -> Unit,
+    onTimestampClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurface,
     fontSize: androidx.compose.ui.unit.TextUnit = 12.sp
 ) {
     val urlPattern = """https?://[^\s"()<>]+""".toRegex()
-    val matches = urlPattern.findAll(text).toList()
+    val timestampPattern = """\b(?:\d{1,2}:)?\d{1,2}:\d{2}(?:\.\d+)?\b""".toRegex()
     
-    if (matches.isEmpty()) {
+    // Find all URL matches
+    val urlMatches = urlPattern.findAll(text).map { 
+        CommentMatchItem(start = it.range.first, end = it.range.last + 1, value = it.value, type = CommentMatchType.URL)
+    }.toList()
+    
+    // Find all Timestamp matches
+    val timestampMatches = timestampPattern.findAll(text).map { 
+        CommentMatchItem(start = it.range.first, end = it.range.last + 1, value = it.value, type = CommentMatchType.TIMESTAMP)
+    }.toList()
+    
+    // Merge and filter overlaps (favoring URLs of course)
+    val allMatches = (urlMatches + timestampMatches)
+        .sortedBy { it.start }
+        
+    val nonOverlappingMatches = mutableListOf<CommentMatchItem>()
+    var lastEnd = 0
+    for (match in allMatches) {
+        if (match.start >= lastEnd) {
+            nonOverlappingMatches.add(match)
+            lastEnd = match.end
+        }
+    }
+
+    if (nonOverlappingMatches.isEmpty()) {
         Text(text = text, modifier = modifier, color = color, fontSize = fontSize)
         return
     }
@@ -801,37 +913,40 @@ fun ClickableCommentText(
     val annotatedString = remember(text) {
         androidx.compose.ui.text.buildAnnotatedString {
             var lastIndex = 0
-            matches.forEach { matchResult ->
-                val url = matchResult.value
-                val startIndex = matchResult.range.first
-                val endIndex = matchResult.range.last + 1
-                
-                if (startIndex > lastIndex) {
-                    append(text.substring(lastIndex, startIndex))
+            nonOverlappingMatches.forEach { match ->
+                if (match.start > lastIndex) {
+                    append(text.substring(lastIndex, match.start))
                 }
                 
                 val startSpan = length
-                append(url)
+                append(match.value)
                 val endSpan = length
+                
+                val spanColor = if (match.type == CommentMatchType.URL) {
+                    Color(0xFF64B5F6) // blue for URL
+                } else {
+                    Color(0xFFFFB74D) // amber/orange for clickable Timestamps!
+                }
                 
                 addStyle(
                     style = androidx.compose.ui.text.SpanStyle(
-                        color = Color(0xFF64B5F6),
-                        textDecoration = TextDecoration.Underline,
-                        fontWeight = FontWeight.Bold
+                        color = spanColor,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     ),
                     start = startSpan,
                     end = endSpan
                 )
                 
+                val tag = if (match.type == CommentMatchType.URL) "URL" else "TIMESTAMP"
                 addStringAnnotation(
-                    tag = "URL",
-                    annotation = url,
+                    tag = tag,
+                    annotation = match.value,
                     start = startSpan,
                     end = endSpan
                 )
                 
-                lastIndex = endIndex
+                lastIndex = match.end
             }
             if (lastIndex < text.length) {
                 append(text.substring(lastIndex))
@@ -847,21 +962,42 @@ fun ClickableCommentText(
             fontSize = fontSize
         ),
         onClick = { offset ->
-            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                .firstOrNull()?.let { annotation ->
-                    val clickedUrl = annotation.item
-                    val sakugaPostRegex = """https?://(?:www\.)?sakugabooru\.com/post/show/(\d+)""".toRegex()
-                    val sakugaMatch = sakugaPostRegex.find(clickedUrl)
-                    if (sakugaMatch != null) {
-                        val postIdStr = sakugaMatch.groupValues[1]
-                        val postId = postIdStr.toIntOrNull()
-                        if (postId != null) {
-                            onSakugaPostClick(postId)
-                            return@let
+            try {
+                if (offset >= 0 && offset < annotatedString.length) {
+                    var urlClicked = false
+                    // Check URL annotations first
+                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            val clickedUrl = annotation.item
+                            val sakugaPostRegex = """https?://(?:www\.)?sakugabooru\.com/post/show/(\d+)""".toRegex()
+                            val sakugaMatch = sakugaPostRegex.find(clickedUrl)
+                            if (sakugaMatch != null) {
+                                val postIdStr = sakugaMatch.groupValues[1]
+                                val postId = postIdStr.toIntOrNull()
+                                if (postId != null) {
+                                    onSakugaPostClick(postId)
+                                    urlClicked = true
+                                    return@let
+                                }
+                            }
+                            onExternalUrlClick(clickedUrl)
+                            urlClicked = true
                         }
+                    
+                    if (!urlClicked) {
+                        // Check TIMESTAMP annotations
+                        annotatedString.getStringAnnotations(tag = "TIMESTAMP", start = offset, end = offset)
+                            .firstOrNull()?.let { annotation ->
+                                val timestampStr = annotation.item
+                                parseTimestampToMs(timestampStr)?.let { ms ->
+                                    onTimestampClick(ms)
+                                }
+                            }
                     }
-                    onExternalUrlClick(clickedUrl)
                 }
+            } catch (e: Exception) {
+                // Ignore index out of bounds or other layout exceptions
+            }
         }
     )
 }
@@ -871,6 +1007,7 @@ fun CommentBodyView(
     body: String,
     onSakugaPostClick: (Int) -> Unit,
     onExternalUrlClick: (String) -> Unit,
+    onTimestampClick: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val quoteRegex = """\[quote\](.*?)\[/quote\]""".toRegex(RegexOption.DOT_MATCHES_ALL)
@@ -881,6 +1018,7 @@ fun CommentBodyView(
             text = body,
             onSakugaPostClick = onSakugaPostClick,
             onExternalUrlClick = onExternalUrlClick,
+            onTimestampClick = onTimestampClick,
             modifier = modifier
         )
         return
@@ -899,7 +1037,8 @@ fun CommentBodyView(
                     ClickableCommentText(
                         text = preText,
                         onSakugaPostClick = onSakugaPostClick,
-                        onExternalUrlClick = onExternalUrlClick
+                        onExternalUrlClick = onExternalUrlClick,
+                        onTimestampClick = onTimestampClick
                     )
                 }
             }
@@ -922,6 +1061,7 @@ fun CommentBodyView(
                     text = quoteContent.trim(),
                     onSakugaPostClick = onSakugaPostClick,
                     onExternalUrlClick = onExternalUrlClick,
+                    onTimestampClick = onTimestampClick,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp
                 )
@@ -936,7 +1076,8 @@ fun CommentBodyView(
                 ClickableCommentText(
                     text = postText,
                     onSakugaPostClick = onSakugaPostClick,
-                    onExternalUrlClick = onExternalUrlClick
+                    onExternalUrlClick = onExternalUrlClick,
+                    onTimestampClick = onTimestampClick
                 )
             }
         }

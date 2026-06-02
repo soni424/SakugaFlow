@@ -20,7 +20,8 @@ interface SakugaApi {
 
     @GET("comment.json")
     suspend fun getComments(
-        @Query("post_id") postId: Int
+        @Query("post_id") postId: Int,
+        @Query("page") page: Int? = null
     ): List<SakugaComment>
 }
 

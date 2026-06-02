@@ -174,12 +174,38 @@ class SakugaRepository(context: Context) {
     }
 
     suspend fun getComments(postId: Int): List<SakugaComment> {
-        return try {
-            api.getComments(postId)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
+        val allComments = mutableListOf<SakugaComment>()
+        val seenIds = mutableSetOf<Int>()
+        var page = 1
+        var consecutiveEmptyCount = 0
+        while (page <= 20) {
+            try {
+                val comments = api.getComments(postId, page)
+                if (comments.isEmpty()) {
+                    consecutiveEmptyCount++
+                    if (consecutiveEmptyCount >= 2) break
+                    break
+                }
+                
+                var hasNew = false
+                for (comment in comments) {
+                    if (seenIds.add(comment.id)) {
+                        allComments.add(comment)
+                        hasNew = true
+                    }
+                }
+                
+                if (!hasNew) {
+                    break
+                }
+                
+                page++
+            } catch (e: Exception) {
+                e.printStackTrace()
+                break
+            }
         }
+        return allComments
     }
 
     suspend fun getPostById(id: Int): SakugaPost? {
