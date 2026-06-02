@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -38,15 +39,33 @@ import com.example.ui.components.VideoPlayer
 fun DetailScreen(
     postId: Int,
     viewModel: SakugaViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onPostClick: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     val posts by viewModel.posts.collectAsState()
     val savedPosts by viewModel.savedPosts.collectAsState()
+    val watchedPosts by viewModel.watchedPosts.collectAsState()
     val isDark = isSystemInDarkTheme()
     
-    val postFromState = remember(postId, posts, savedPosts) {
-        posts.find { it.id == postId } ?: savedPosts.find { it.id == postId }
+    val postFromState = remember(postId, posts, savedPosts, watchedPosts) {
+        posts.find { it.id == postId } 
+            ?: savedPosts.find { it.id == postId } 
+            ?: watchedPosts.find { it.id == postId }?.let { watched ->
+                SakugaPost(
+                    id = watched.id,
+                    tags = watched.tags,
+                    fileUrl = watched.fileUrl,
+                    previewUrl = watched.previewUrl,
+                    sampleUrl = watched.sampleUrl,
+                    fileExt = watched.fileExt,
+                    score = watched.score,
+                    author = watched.author,
+                    width = watched.width,
+                    height = watched.height,
+                    savedTimestamp = 0L
+                )
+            }
     }
 
     var loadedPost by remember { mutableStateOf<SakugaPost?>(null) }
@@ -281,7 +300,7 @@ fun DetailScreen(
                     }
 
                     // 1b. Real Video Comments Section
-                    val discussionComments by viewModel.discussionComments.collectAsState()
+                    val commentsState by viewModel.comments.collectAsState()
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -312,7 +331,7 @@ fun DetailScreen(
                                 }
                                 Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
                                     Text(
-                                        text = "${discussionComments.size} comments",
+                                        text = "${commentsState.size} comments",
                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -322,7 +341,7 @@ fun DetailScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            if (discussionComments.isEmpty()) {
+                            if (commentsState.isEmpty()) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -330,52 +349,71 @@ fun DetailScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "No discussion comments posted for this clip yet.",
+                                        text = "No comments posted for this clip yet.",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    discussionComments.forEach { comment ->
-                                        Column(
+                                    commentsState.forEach { comment ->
+                                        Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .background(
-                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                                                     RoundedCornerShape(10.dp)
                                                 )
-                                                .padding(12.dp)
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.Top
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                            // Left portion: Creator & Time info (styled like screenshot)
+                                            Column(
+                                                modifier = Modifier.width(90.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.AccountCircle,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Text(
-                                                        text = comment.creator ?: "Anonymous",
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 12.sp,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
+                                                Text(
+                                                    text = comment.creator ?: "Anonymous",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = formatCommentTimeAgo(comment.createdAt),
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                    lineHeight = 12.sp
+                                                )
                                             }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = comment.body,
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
+
+                                            // Divider line for structural polish
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(1.dp)
+                                                    .height(40.dp)
+                                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                                             )
+
+                                            // Right portion: Comment body & optional quote block (styled with CommentBodyView)
+                                            Box(
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                CommentBodyView(
+                                                    body = comment.body,
+                                                    onSakugaPostClick = onPostClick,
+                                                    onExternalUrlClick = { url ->
+                                                        try {
+                                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                                            context.startActivity(intent)
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "No app found to open this link.", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -740,6 +778,222 @@ fun MetadataCard(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+fun ClickableCommentText(
+    text: String,
+    onSakugaPostClick: (Int) -> Unit,
+    onExternalUrlClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    fontSize: androidx.compose.ui.unit.TextUnit = 12.sp
+) {
+    val urlPattern = """https?://[^\s"()<>]+""".toRegex()
+    val matches = urlPattern.findAll(text).toList()
+    
+    if (matches.isEmpty()) {
+        Text(text = text, modifier = modifier, color = color, fontSize = fontSize)
+        return
+    }
+
+    val annotatedString = remember(text) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            var lastIndex = 0
+            matches.forEach { matchResult ->
+                val url = matchResult.value
+                val startIndex = matchResult.range.first
+                val endIndex = matchResult.range.last + 1
+                
+                if (startIndex > lastIndex) {
+                    append(text.substring(lastIndex, startIndex))
+                }
+                
+                val startSpan = length
+                append(url)
+                val endSpan = length
+                
+                addStyle(
+                    style = androidx.compose.ui.text.SpanStyle(
+                        color = Color(0xFF64B5F6),
+                        textDecoration = TextDecoration.Underline,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    start = startSpan,
+                    end = endSpan
+                )
+                
+                addStringAnnotation(
+                    tag = "URL",
+                    annotation = url,
+                    start = startSpan,
+                    end = endSpan
+                )
+                
+                lastIndex = endIndex
+            }
+            if (lastIndex < text.length) {
+                append(text.substring(lastIndex))
+            }
+        }
+    }
+
+    androidx.compose.foundation.text.ClickableText(
+        text = annotatedString,
+        modifier = modifier,
+        style = androidx.compose.ui.text.TextStyle(
+            color = color,
+            fontSize = fontSize
+        ),
+        onClick = { offset ->
+            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                .firstOrNull()?.let { annotation ->
+                    val clickedUrl = annotation.item
+                    val sakugaPostRegex = """https?://(?:www\.)?sakugabooru\.com/post/show/(\d+)""".toRegex()
+                    val sakugaMatch = sakugaPostRegex.find(clickedUrl)
+                    if (sakugaMatch != null) {
+                        val postIdStr = sakugaMatch.groupValues[1]
+                        val postId = postIdStr.toIntOrNull()
+                        if (postId != null) {
+                            onSakugaPostClick(postId)
+                            return@let
+                        }
+                    }
+                    onExternalUrlClick(clickedUrl)
+                }
+        }
+    )
+}
+
+@Composable
+fun CommentBodyView(
+    body: String,
+    onSakugaPostClick: (Int) -> Unit,
+    onExternalUrlClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val quoteRegex = """\[quote\](.*?)\[/quote\]""".toRegex(RegexOption.DOT_MATCHES_ALL)
+    val matches = quoteRegex.findAll(body).toList()
+
+    if (matches.isEmpty()) {
+        ClickableCommentText(
+            text = body,
+            onSakugaPostClick = onSakugaPostClick,
+            onExternalUrlClick = onExternalUrlClick,
+            modifier = modifier
+        )
+        return
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        var lastIndex = 0
+        matches.forEach { matchResult ->
+            val startIndex = matchResult.range.first
+            val endIndex = matchResult.range.last + 1
+            val quoteContent = matchResult.groupValues[1]
+
+            if (startIndex > lastIndex) {
+                val preText = body.substring(lastIndex, startIndex).trim()
+                if (preText.isNotEmpty()) {
+                    ClickableCommentText(
+                        text = preText,
+                        onSakugaPostClick = onSakugaPostClick,
+                        onExternalUrlClick = onExternalUrlClick
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(10.dp)
+            ) {
+                ClickableCommentText(
+                    text = quoteContent.trim(),
+                    onSakugaPostClick = onSakugaPostClick,
+                    onExternalUrlClick = onExternalUrlClick,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp
+                )
+            }
+
+            lastIndex = endIndex
+        }
+
+        if (lastIndex < body.length) {
+            val postText = body.substring(lastIndex).trim()
+            if (postText.isNotEmpty()) {
+                ClickableCommentText(
+                    text = postText,
+                    onSakugaPostClick = onSakugaPostClick,
+                    onExternalUrlClick = onExternalUrlClick
+                )
+            }
+        }
+    }
+}
+
+fun formatCommentTimeAgo(createdAt: String?): String {
+    if (createdAt.isNullOrEmpty()) return "over 2 years ago"
+    
+    try {
+        val isNumeric = createdAt.all { it.isDigit() }
+        val millis = if (isNumeric) {
+            val num = createdAt.toLong()
+            if (num > 100000000000L) num else num * 1000L
+        } else {
+            val formats = listOf(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd"
+            )
+            var parsedTime: Long? = null
+            for (fmt in formats) {
+                try {
+                    val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                    parsedTime = sdf.parse(createdAt)?.time
+                    if (parsedTime != null) break
+                } catch (e: Exception) {
+                    // Try next format
+                }
+            }
+            parsedTime ?: return createdAt
+        }
+        
+        val now = System.currentTimeMillis()
+        val diffMs = now - millis
+        
+        val diffSeconds = diffMs / 1000
+        val diffMinutes = diffSeconds / 60
+        val diffHours = diffMinutes / 60
+        val diffDays = diffHours / 24
+        val diffMonths = diffDays / 30
+        val diffYears = diffDays / 365
+        
+        return when {
+            diffSeconds < 60 -> "just now"
+            diffMinutes < 60 -> "${diffMinutes}m ago"
+            diffHours < 24 -> "${diffHours}h ago"
+            diffDays < 30 -> "${diffDays}d ago"
+            diffMonths < 12 -> if (diffMonths == 1L) "a month ago" else "${diffMonths} months ago"
+            diffYears < 2 -> "over a year ago"
+            else -> "over $diffYears years ago"
+        }
+    } catch (e: Exception) {
+        return "over 2 years ago"
     }
 }
 

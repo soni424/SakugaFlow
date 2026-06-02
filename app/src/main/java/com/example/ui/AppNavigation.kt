@@ -244,7 +244,8 @@ fun SakugaApp() {
                         DetailScreen(
                             postId = postId,
                             viewModel = viewModel,
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateBack = { navController.popBackStack() },
+                            onPostClick = { id -> navController.navigate("detail/$id") }
                         )
                     }
                 }
